@@ -1,0 +1,4 @@
+# 反代管理面板示例：把 3proxy.你的域名 换成你自己的域名后追加到 /etc/caddy/Caddyfile
+3proxy.你的域名 {
+	reverse_proxy 127.0.0.1:18080
+}

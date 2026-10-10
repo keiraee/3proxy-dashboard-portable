@@ -1,0 +1,13 @@
+# /etc/systemd/system/3proxy.service
+[Unit]
+Description=3proxy SOCKS5 Proxy
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/3proxy/bin/3proxy /etc/3proxy/3proxy.cfg
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1484 @@
+import hmac
+import os
+import re
+import shlex
+import sqlite3
+import subprocess
+import threading
+from datetime import datetime, timedelta
+from functools import wraps
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from flask import (
+    Flask,
+    Response,
+    abort,
+    flash,
+    redirect,
+    render_template_string,
+    request,
+    url_for,
+)
+
+APP_DIR = Path("/opt/3proxy-dashboard")
+DB_PATH = APP_DIR / "dashboard_v3.db"
+LOG_PATH = Path("/var/log/3proxy/access.log")
+PROXY_CONFIG = Path("/etc/3proxy/3proxy.cfg")
+
+ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+ADMIN_PASS = os.environ.get("ADMIN_PASS", "")
+CSRF_TOKEN = os.environ.get("CSRF_TOKEN", "")
+TZ_NAME = os.environ.get("TZ_NAME", "Asia/Singapore")
+TZ = ZoneInfo(TZ_NAME)
+
+app = Flask(__name__)
+app.secret_key = CSRF_TOKEN or os.urandom(32)
+parse_lock = threading.Lock()
+
+BASE_STYLE = """
+<style>
+:root {
+    --black: #111111;
+    --graphite: #303236;
+    --silver: #a8aaad;
+    --silver-light: #e7e8e9;
+    --surface: #ffffff;
+    --muted: #72757a;
+    --success: #177245;
+    --danger: #a52525;
+    --warning: #8a6812;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    min-height: 100%;
+    background: #ffffff;
+    color: var(--black);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+body {
+    padding: 38px;
+}
+
+.shell {
+    width: min(1320px, 100%);
+    margin: 0 auto;
+}
+
+.topbar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 8px 0 25px;
+    border-bottom: 1px solid #d9dadd;
+    margin-bottom: 28px;
+}
+
+.eyebrow {
+    color: #73767a;
+    font-size: 11px;
+    letter-spacing: .24em;
+    text-transform: uppercase;
+    margin-bottom: 9px;
+}
+
+h1 {
+    margin: 0;
+    font-size: clamp(29px, 4vw, 46px);
+    line-height: 1;
+    font-weight: 300;
+    letter-spacing: -.035em;
+}
+
+.subtitle {
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.top-meta {
+    text-align: right;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 28px;
+}
+
+.nav a {
+    color: var(--graphite);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 9px 15px;
+    border: 1px solid #d9dadd;
+    border-radius: 999px;
+    background: #fff;
+    transition: .18s ease;
+}
+
+.nav a:hover {
+    border-color: #8b8e92;
+    transform: translateY(-1px);
+}
+
+.metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 15px;
+    margin-bottom: 28px;
+}
+
+.metric {
+    position: relative;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #e1e2e4;
+    border-radius: 18px;
+    padding: 22px;
+    min-height: 132px;
+    box-shadow: 0 14px 34px rgba(17, 17, 17, .055);
+}
+
+.metric::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 22px;
+    right: 22px;
+    height: 2px;
+    background: linear-gradient(90deg, #34363a, #d4d5d7, #7e8185);
+}
+
+.metric-label {
+    margin-top: 7px;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+}
+
+.metric-value {
+    margin-top: 24px;
+    font-size: 30px;
+    font-weight: 300;
+    letter-spacing: -.035em;
+}
+
+.panel {
+    background: #fff;
+    border: 1px solid #dedfe1;
+    border-radius: 20px;
+    box-shadow: 0 16px 42px rgba(17, 17, 17, .055);
+    overflow: hidden;
+    margin-bottom: 26px;
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 22px 24px;
+    border-bottom: 1px solid #e5e6e7;
+}
+
+.panel-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 500;
+}
+
+.panel-note {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th {
+    padding: 14px 18px;
+    text-align: left;
+    background: #fafafa;
+    border-bottom: 1px solid #e3e4e5;
+    color: #74777b;
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+td {
+    padding: 17px 18px;
+    border-bottom: 1px solid #ededee;
+    vertical-align: middle;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+.username {
+    color: #111;
+    font-size: 15px;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.username:hover {
+    text-decoration: underline;
+}
+
+.secondary {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 5px;
+}
+
+.status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border-radius: 999px;
+    padding: 7px 10px;
+    font-size: 11px;
+    border: 1px solid #dfe1e2;
+}
+
+.dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #92959a;
+}
+
+.status.online .dot {
+    background: var(--success);
+    box-shadow: 0 0 0 4px rgba(23, 114, 69, .10);
+}
+
+.status.disabled {
+    color: var(--danger);
+}
+
+.status.disabled .dot {
+    background: var(--danger);
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+button, .button {
+    appearance: none;
+    border: 1px solid #cfd1d3;
+    background: #fff;
+    color: #1d1f21;
+    border-radius: 9px;
+    padding: 8px 11px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    text-decoration: none;
+    transition: .18s ease;
+}
+
+button:hover, .button:hover {
+    border-color: #707378;
+    transform: translateY(-1px);
+}
+
+.button-dark {
+    color: #fff;
+    background: #151617;
+    border-color: #151617;
+}
+
+.button-danger {
+    color: var(--danger);
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.field label {
+    display: block;
+    margin-bottom: 7px;
+    color: #72757a;
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+}
+
+input {
+    width: 100%;
+    height: 42px;
+    border: 1px solid #d5d7d8;
+    border-radius: 9px;
+    background: #fff;
+    padding: 0 12px;
+    color: #171819;
+    outline: none;
+    font: inherit;
+}
+
+input:focus {
+    border-color: #54575b;
+    box-shadow: 0 0 0 3px rgba(50, 52, 54, .07);
+}
+
+.form-body {
+    padding: 22px 24px;
+}
+
+.flash {
+    margin-bottom: 18px;
+    border: 1px solid #dadbdd;
+    border-left: 3px solid #34363a;
+    background: #fff;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 13px;
+}
+
+.flash.error {
+    border-left-color: var(--danger);
+    color: var(--danger);
+}
+
+.empty {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--muted);
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+}
+
+.daily-row {
+    display: grid;
+    grid-template-columns: 105px 1fr 95px;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #ededee;
+}
+
+.daily-row:last-child {
+    border-bottom: 0;
+}
+
+.bar-track {
+    height: 7px;
+    background: #eff0f1;
+    border-radius: 99px;
+    overflow: hidden;
+}
+
+.bar {
+    height: 100%;
+    min-width: 2px;
+    background: linear-gradient(90deg, #1b1c1e, #9b9da0);
+    border-radius: 99px;
+}
+
+footer {
+    padding: 10px 2px 4px;
+    color: #8a8d91;
+    font-size: 11px;
+    text-align: center;
+}
+
+@media (max-width: 920px) {
+    body {
+        padding: 22px 14px;
+    }
+
+    .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .top-meta {
+        text-align: left;
+    }
+
+    .form-grid,
+    .detail-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 540px) {
+    .metrics {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+"""
+
+HEADER = """
+<div class="topbar">
+    <div>
+        <div class="eyebrow">Private Network Control</div>
+        <h1>3proxy Dashboard</h1>
+        <div class="subtitle">Refined traffic intelligence and user access management.</div>
+    </div>
+    <div class="top-meta">
+        SOCKS5 · TCP 1234<br>
+        Time zone · {{ timezone }}
+    </div>
+</div>
+
+<div class="nav">
+    <a href="{{ url_for('index') }}">Overview</a>
+</div>
+"""
+
+
+def db_connection():
+    connection = sqlite3.connect(DB_PATH, timeout=20)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_db():
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+
+    with db_connection() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS traffic (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_key TEXT NOT NULL UNIQUE,
+                ts INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                client_ip TEXT NOT NULL,
+                target TEXT NOT NULL,
+                download INTEGER NOT NULL DEFAULT 0,
+                upload INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_traffic_user_ts "
+            "ON traffic(username, ts)"
+        )
+
+
+def get_state(conn, key, default=""):
+    row = conn.execute(
+        "SELECT value FROM state WHERE key = ?", (key,)
+    ).fetchone()
+    return row["value"] if row else default
+
+
+def set_state(conn, key, value):
+    conn.execute(
+        """
+        INSERT INTO state(key, value) VALUES(?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (key, str(value)),
+    )
+
+
+def import_users_from_config():
+    if not PROXY_CONFIG.exists():
+        return
+
+    try:
+        lines = PROXY_CONFIG.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return
+
+    imported = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        try:
+            parts = shlex.split(stripped)
+        except ValueError:
+            continue
+
+        if not parts or parts[0] != "users":
+            continue
+
+        for token in parts[1:]:
+            segments = token.split(":", 2)
+
+            if len(segments) != 3 or segments[1].upper() != "CL":
+                continue
+
+            username, _, password = segments
+
+            if username.startswith("__"):
+                continue
+
+            imported.append((username, password))
+
+    now = int(datetime.now(TZ).timestamp())
+
+    with db_connection() as conn:
+        for username, password in imported:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO users(username, password, enabled, created_at)
+                VALUES(?, ?, 1, ?)
+                """,
+                (username, password, now),
+            )
+
+
+def split_endpoint(endpoint):
+    if ":" not in endpoint:
+        return endpoint
+
+    host, port = endpoint.rsplit(":", 1)
+
+    if port.isdigit():
+        return host
+
+    return endpoint
+
+
+def parse_log_incrementally():
+    if not LOG_PATH.exists():
+        return
+
+    with parse_lock:
+        try:
+            stat = LOG_PATH.stat()
+        except OSError:
+            return
+
+        inode = f"{stat.st_dev}:{stat.st_ino}"
+
+        with db_connection() as conn:
+            old_inode = get_state(conn, "log_inode")
+            old_offset = int(get_state(conn, "log_offset", "0") or 0)
+
+            if old_inode != inode or stat.st_size < old_offset:
+                old_offset = 0
+
+            with LOG_PATH.open("rb") as log_file:
+                log_file.seek(old_offset)
+
+                while True:
+                    line_offset = log_file.tell()
+                    raw_line = log_file.readline()
+
+                    if not raw_line:
+                        break
+
+                    line = raw_line.decode("utf-8", errors="ignore").strip()
+
+                    match = re.search(
+                        r"^L(\d+)\s+(\S+)\s+(\S+)\s+(\S+).*?"
+                        r"IN:(\d+)\s+OUT:(\d+)",
+                        line,
+                    )
+
+                    if not match:
+                        continue
+
+                    ts = int(match.group(1))
+                    username = match.group(2)
+
+                    if username == "-":
+                        continue
+
+                    client_ip = split_endpoint(match.group(3))
+                    target = match.group(4)
+                    download = int(match.group(5))
+                    upload = int(match.group(6))
+                    event_key = f"{inode}:{line_offset}"
+
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO traffic(
+                            event_key, ts, username, client_ip,
+                            target, download, upload
+                        )
+                        VALUES(?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            event_key,
+                            ts,
+                            username,
+                            client_ip,
+                            target,
+                            download,
+                            upload,
+                        ),
+                    )
+
+                set_state(conn, "log_inode", inode)
+                set_state(conn, "log_offset", log_file.tell())
+
+
+def authorized():
+    auth = request.authorization
+
+    if not auth:
+        return False
+
+    return (
+        hmac.compare_digest(auth.username or "", ADMIN_USER)
+        and hmac.compare_digest(auth.password or "", ADMIN_PASS)
+    )
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not authorized():
+            return Response(
+                "Authentication required",
+                401,
+                {"WWW-Authenticate": 'Basic realm="3proxy Dashboard"'},
+            )
+
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def validate_csrf():
+    token = request.form.get("csrf_token", "")
+
+    if not hmac.compare_digest(token, CSRF_TOKEN):
+        abort(403)
+
+
+def format_bytes(value):
+    value = int(value or 0)
+    units = ["B", "KB", "MB", "GB", "TB"]
+    amount = float(value)
+
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(amount)} {unit}"
+
+            return f"{amount:.2f} {unit}"
+
+        amount /= 1024
+
+    return f"{value} B"
+
+
+app.jinja_env.filters["bytes"] = format_bytes
+
+
+def time_boundaries():
+    now = datetime.now(TZ)
+    day_start = int(
+        now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    )
+    month_start = int(
+        now.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        ).timestamp()
+    )
+
+    return now, day_start, month_start
+
+
+def restart_3proxy():
+    result = subprocess.run(
+        ["systemctl", "restart", "3proxy"],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(message or "Unable to restart 3proxy")
+
+
+def rebuild_users_config():
+    if not PROXY_CONFIG.exists():
+        raise RuntimeError("3proxy configuration file was not found")
+
+    with db_connection() as conn:
+        active_users = conn.execute(
+            """
+            SELECT username, password
+            FROM users
+            WHERE enabled = 1
+            ORDER BY username
+            """
+        ).fetchall()
+
+    original = PROXY_CONFIG.read_text(
+        encoding="utf-8", errors="ignore"
+    ).splitlines()
+
+    backup = PROXY_CONFIG.with_suffix(".cfg.dashboard.bak")
+    backup.write_text("\n".join(original) + "\n", encoding="utf-8")
+
+    filtered = []
+    inserted = False
+
+    if active_users:
+        credentials = " ".join(
+            f"{row['username']}:CL:{row['password']}"
+            for row in active_users
+        )
+    else:
+        placeholder = os.urandom(24).hex()
+        credentials = f"__no_active_users__:CL:{placeholder}"
+
+    users_line = f"users {credentials}"
+
+    for line in original:
+        stripped = line.strip()
+
+        if stripped.startswith("users "):
+            continue
+
+        if not inserted and stripped.startswith("socks "):
+            filtered.append(users_line)
+            filtered.append("")
+            inserted = True
+
+        filtered.append(line)
+
+    if not inserted:
+        filtered.append("")
+        filtered.append(users_line)
+
+    PROXY_CONFIG.write_text(
+        "\n".join(filtered).rstrip() + "\n",
+        encoding="utf-8",
+    )
+
+    try:
+        restart_3proxy()
+    except Exception:
+        PROXY_CONFIG.write_text(
+            backup.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        restart_3proxy()
+        raise
+
+
+def dashboard_rows():
+    now, day_start, month_start = time_boundaries()
+    now_ts = int(now.timestamp())
+    online_cutoff = now_ts - 180
+    recent_ip_cutoff = now_ts - 86400
+
+    with db_connection() as conn:
+        users = conn.execute(
+            "SELECT * FROM users ORDER BY username"
+        ).fetchall()
+
+        output = []
+
+        for user in users:
+            totals = conn.execute(
+                """
+                SELECT
+                    COALESCE(SUM(
+                        CASE WHEN ts >= ? THEN download + upload ELSE 0 END
+                    ), 0) AS today_total,
+                    COALESCE(SUM(
+                        CASE WHEN ts >= ? THEN download + upload ELSE 0 END
+                    ), 0) AS month_total,
+                    COALESCE(SUM(download), 0) AS total_download,
+                    COALESCE(SUM(upload), 0) AS total_upload,
+                    COALESCE(MAX(ts), 0) AS last_seen
+                FROM traffic
+                WHERE username = ?
+                """,
+                (day_start, month_start, user["username"]),
+            ).fetchone()
+
+            last = conn.execute(
+                """
+                SELECT client_ip, target
+                FROM traffic
+                WHERE username = ?
+                ORDER BY ts DESC
+                LIMIT 1
+                """,
+                (user["username"],),
+            ).fetchone()
+
+            ip_count = conn.execute(
+                """
+                SELECT COUNT(DISTINCT client_ip) AS count
+                FROM traffic
+                WHERE username = ? AND ts >= ?
+                """,
+                (user["username"], recent_ip_cutoff),
+            ).fetchone()["count"]
+
+            output.append(
+                {
+                    "username": user["username"],
+                    "enabled": bool(user["enabled"]),
+                    "today_total": totals["today_total"],
+                    "month_total": totals["month_total"],
+                    "total_download": totals["total_download"],
+                    "total_upload": totals["total_upload"],
+                    "last_seen": totals["last_seen"],
+                    "last_ip": last["client_ip"] if last else "—",
+                    "last_target": last["target"] if last else "—",
+                    "ip_count": ip_count,
+                    "online": (
+                        bool(user["enabled"])
+                        and totals["last_seen"] >= online_cutoff
+                    ),
+                }
+            )
+
+    return output
+
+
+@app.route("/")
+@login_required
+def index():
+    parse_log_incrementally()
+    rows = dashboard_rows()
+
+    total_today = sum(row["today_total"] for row in rows)
+    total_month = sum(row["month_total"] for row in rows)
+    online_count = sum(1 for row in rows if row["online"])
+
+    template = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3proxy Dashboard</title>
+""" + BASE_STYLE + """
+</head>
+<body>
+<div class="shell">
+""" + HEADER + """
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+{% endwith %}
+
+<div class="metrics">
+    <div class="metric">
+        <div class="metric-label">Managed users</div>
+        <div class="metric-value">{{ rows|length }}</div>
+    </div>
+    <div class="metric">
+        <div class="metric-label">Online now</div>
+        <div class="metric-value">{{ online_count }}</div>
+    </div>
+    <div class="metric">
+        <div class="metric-label">Traffic today</div>
+        <div class="metric-value">{{ total_today|bytes }}</div>
+    </div>
+    <div class="metric">
+        <div class="metric-label">Traffic this month</div>
+        <div class="metric-value">{{ total_month|bytes }}</div>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-head">
+        <div>
+            <h2 class="panel-title">Access profiles</h2>
+            <div class="panel-note">
+                Online status is based on activity during the last three minutes.
+            </div>
+        </div>
+    </div>
+
+    {% if rows %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>User</th>
+                <th>Status</th>
+                <th>Today</th>
+                <th>This month</th>
+                <th>Total download / upload</th>
+                <th>Last IP</th>
+                <th>Recent IPs</th>
+                <th>Controls</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>
+                    <a class="username"
+                       href="{{ url_for('user_detail', username=row.username) }}">
+                        {{ row.username }}
+                    </a>
+                    <div class="secondary">
+                        Last target · {{ row.last_target }}
+                    </div>
+                </td>
+                <td>
+                    {% if not row.enabled %}
+                        <span class="status disabled">
+                            <span class="dot"></span>Disabled
+                        </span>
+                    {% elif row.online %}
+                        <span class="status online">
+                            <span class="dot"></span>Online
+                        </span>
+                    {% else %}
+                        <span class="status">
+                            <span class="dot"></span>Offline
+                        </span>
+                    {% endif %}
+                </td>
+                <td>{{ row.today_total|bytes }}</td>
+                <td>{{ row.month_total|bytes }}</td>
+                <td>
+                    ↓ {{ row.total_download|bytes }}
+                    <div class="secondary">↑ {{ row.total_upload|bytes }}</div>
+                </td>
+                <td>{{ row.last_ip }}</td>
+                <td>{{ row.ip_count }}</td>
+                <td>
+                    <div class="actions">
+                        <form method="post"
+                              action="{{ url_for('toggle_user', username=row.username) }}">
+                            <input type="hidden"
+                                   name="csrf_token"
+                                   value="{{ csrf_token }}">
+                            <button type="submit">
+                                {{ "Enable" if not row.enabled else "Disable" }}
+                            </button>
+                        </form>
+
+                        <a class="button"
+                           href="{{ url_for('user_detail', username=row.username) }}">
+                            Details
+                        </a>
+
+                        <form method="post"
+                              action="{{ url_for('delete_user', username=row.username) }}"
+                              onsubmit="return confirm('Delete this user permanently?')">
+                            <input type="hidden"
+                                   name="csrf_token"
+                                   value="{{ csrf_token }}">
+                            <button class="button-danger" type="submit">
+                                Delete
+                            </button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+
+            <tr>
+                <td colspan="8" style="padding-top:0;background:#fcfcfc;">
+                    <form class="form-grid"
+                          method="post"
+                          action="{{ url_for('change_password', username=row.username) }}">
+                        <input type="hidden"
+                               name="csrf_token"
+                               value="{{ csrf_token }}">
+                        <div class="field">
+                            <label>New password for {{ row.username }}</label>
+                            <input name="password"
+                                   type="password"
+                                   minlength="4"
+                                   maxlength="64"
+                                   autocomplete="new-password"
+                                   placeholder="Enter a new password"
+                                   required>
+                        </div>
+                        <div></div>
+                        <button type="submit">Update password</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <div class="empty">No users have been configured.</div>
+    {% endif %}
+</div>
+
+<div class="panel">
+    <div class="panel-head">
+        <div>
+            <h2 class="panel-title">Create access profile</h2>
+            <div class="panel-note">
+                Username and password authentication will be applied immediately.
+            </div>
+        </div>
+    </div>
+
+    <div class="form-body">
+        <form class="form-grid"
+              method="post"
+              action="{{ url_for('add_user') }}">
+            <input type="hidden"
+                   name="csrf_token"
+                   value="{{ csrf_token }}">
+
+            <div class="field">
+                <label>Username</label>
+                <input name="username"
+                       maxlength="32"
+                       pattern="[A-Za-z0-9_.-]+"
+                       placeholder="new_user"
+                       required>
+            </div>
+
+            <div class="field">
+                <label>Password</label>
+                <input name="password"
+                       type="password"
+                       minlength="4"
+                       maxlength="64"
+                       autocomplete="new-password"
+                       placeholder="Secure password"
+                       required>
+            </div>
+
+            <button class="button-dark" type="submit">
+                Create user
+            </button>
+        </form>
+    </div>
+</div>
+
+<footer>
+    Pure white interface · No logo · Private administration
+</footer>
+</div>
+</body>
+</html>
+"""
+
+    return render_template_string(
+        template,
+        rows=rows,
+        online_count=online_count,
+        total_today=total_today,
+        total_month=total_month,
+        csrf_token=CSRF_TOKEN,
+        timezone=TZ_NAME,
+    )
+
+
+@app.route("/users/add", methods=["POST"])
+@login_required
+def add_user():
+    validate_csrf()
+
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,32}", username):
+        flash("Invalid username format.", "error")
+        return redirect(url_for("index"))
+
+    if (
+        len(password) < 4
+        or len(password) > 64
+        or ":" in password
+        or any(char.isspace() for char in password)
+    ):
+        flash(
+            "Password must contain 4–64 characters without spaces or colons.",
+            "error",
+        )
+        return redirect(url_for("index"))
+
+    with db_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+        if exists:
+            flash("That username already exists.", "error")
+            return redirect(url_for("index"))
+
+        conn.execute(
+            """
+            INSERT INTO users(username, password, enabled, created_at)
+            VALUES(?, ?, 1, ?)
+            """,
+            (username, password, int(datetime.now(TZ).timestamp())),
+        )
+
+    try:
+        rebuild_users_config()
+        flash(f"User {username} was created.", "success")
+    except Exception as exc:
+        with db_connection() as conn:
+            conn.execute(
+                "DELETE FROM users WHERE username = ?",
+                (username,),
+            )
+
+        flash(f"Unable to update 3proxy: {exc}", "error")
+
+    return redirect(url_for("index"))
+
+
+@app.route("/users/<username>/toggle", methods=["POST"])
+@login_required
+def toggle_user(username):
+    validate_csrf()
+
+    with db_connection() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+        if not user:
+            abort(404)
+
+        new_state = 0 if user["enabled"] else 1
+
+        conn.execute(
+            "UPDATE users SET enabled = ? WHERE username = ?",
+            (new_state, username),
+        )
+
+    try:
+        rebuild_users_config()
+        action = "enabled" if new_state else "disabled"
+        flash(f"User {username} was {action}.", "success")
+    except Exception as exc:
+        with db_connection() as conn:
+            conn.execute(
+                "UPDATE users SET enabled = ? WHERE username = ?",
+                (user["enabled"], username),
+            )
+
+        flash(f"Unable to update 3proxy: {exc}", "error")
+
+    return redirect(url_for("index"))
+
+
+@app.route("/users/<username>/password", methods=["POST"])
+@login_required
+def change_password(username):
+    validate_csrf()
+    password = request.form.get("password", "").strip()
+
+    if (
+        len(password) < 4
+        or len(password) > 64
+        or ":" in password
+        or any(char.isspace() for char in password)
+    ):
+        flash(
+            "Password must contain 4–64 characters without spaces or colons.",
+            "error",
+        )
+        return redirect(url_for("index"))
+
+    with db_connection() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+        if not user:
+            abort(404)
+
+        old_password = user["password"]
+
+        conn.execute(
+            "UPDATE users SET password = ? WHERE username = ?",
+            (password, username),
+        )
+
+    try:
+        rebuild_users_config()
+        flash(f"Password for {username} was updated.", "success")
+    except Exception as exc:
+        with db_connection() as conn:
+            conn.execute(
+                "UPDATE users SET password = ? WHERE username = ?",
+                (old_password, username),
+            )
+
+        flash(f"Unable to update 3proxy: {exc}", "error")
+
+    return redirect(url_for("index"))
+
+
+@app.route("/users/<username>/delete", methods=["POST"])
+@login_required
+def delete_user(username):
+    validate_csrf()
+
+    with db_connection() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+        if not user:
+            abort(404)
+
+        conn.execute(
+            "DELETE FROM users WHERE username = ?",
+            (username,),
+        )
+
+    try:
+        rebuild_users_config()
+        flash(f"User {username} was deleted.", "success")
+    except Exception as exc:
+        with db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO users(username, password, enabled, created_at)
+                VALUES(?, ?, ?, ?)
+                """,
+                (
+                    user["username"],
+                    user["password"],
+                    user["enabled"],
+                    user["created_at"],
+                ),
+            )
+
+        flash(f"Unable to update 3proxy: {exc}", "error")
+
+    return redirect(url_for("index"))
+
+
+@app.route("/users/<username>")
+@login_required
+def user_detail(username):
+    parse_log_incrementally()
+
+    with db_connection() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+        if not user:
+            abort(404)
+
+        traffic = conn.execute(
+            """
+            SELECT ts, client_ip, target, download, upload
+            FROM traffic
+            WHERE username = ?
+            ORDER BY ts DESC
+            """,
+            (username,),
+        ).fetchall()
+
+    daily = {}
+    recent = []
+
+    for row in traffic:
+        local_dt = datetime.fromtimestamp(row["ts"], TZ)
+        day_key = local_dt.strftime("%Y-%m-%d")
+        daily.setdefault(day_key, 0)
+        daily[day_key] += row["download"] + row["upload"]
+
+        if len(recent) < 30:
+            recent.append(
+                {
+                    "time": local_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "ip": row["client_ip"],
+                    "target": row["target"],
+                    "download": row["download"],
+                    "upload": row["upload"],
+                }
+            )
+
+    days = []
+
+    for offset in range(29, -1, -1):
+        current_day = (
+            datetime.now(TZ).date() - timedelta(days=offset)
+        ).strftime("%Y-%m-%d")
+
+        days.append(
+            {
+                "date": current_day,
+                "value": daily.get(current_day, 0),
+            }
+        )
+
+    maximum = max((day["value"] for day in days), default=1) or 1
+
+    for day in days:
+        day["percent"] = max(1, round(day["value"] / maximum * 100))
+
+    template = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ username }} · 3proxy Dashboard</title>
+""" + BASE_STYLE + """
+</head>
+<body>
+<div class="shell">
+""" + HEADER + """
+
+<div class="detail-grid">
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2 class="panel-title">{{ username }} · 30-day traffic</h2>
+                <div class="panel-note">
+                    Download and upload combined.
+                </div>
+            </div>
+        </div>
+        <div class="form-body">
+            {% for day in days %}
+            <div class="daily-row">
+                <div>{{ day.date }}</div>
+                <div class="bar-track">
+                    <div class="bar"
+                         style="width:{{ day.percent }}%"></div>
+                </div>
+                <div style="text-align:right">
+                    {{ day.value|bytes }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2 class="panel-title">Recent connections</h2>
+                <div class="panel-note">
+                    Most recent 30 completed proxy sessions.
+                </div>
+            </div>
+        </div>
+
+        {% if recent %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Client IP</th>
+                    <th>Target</th>
+                    <th>Down / Up</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for item in recent %}
+                <tr>
+                    <td>{{ item.time }}</td>
+                    <td>{{ item.ip }}</td>
+                    <td>{{ item.target }}</td>
+                    <td>
+                        ↓ {{ item.download|bytes }}
+                        <div class="secondary">
+                            ↑ {{ item.upload|bytes }}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <div class="empty">No traffic has been recorded.</div>
+        {% endif %}
+    </div>
+</div>
+
+<footer>
+    Pure white interface · No logo · Private administration
+</footer>
+</div>
+</body>
+</html>
+"""
+
+    return render_template_string(
+        template,
+        username=username,
+        days=days,
+        recent=recent,
+        timezone=TZ_NAME,
+    )
+
+
+init_db()
+import_users_from_config()
+parse_log_incrementally()
