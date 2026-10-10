@@ -57,9 +57,10 @@ prepare_package() {
     fetch "$REPO_RAW/$f" "$PKG_DIR/$f" || { err "下载 $f 失败，请检查 REPO_RAW"; exit 1; }
   done
   # 哈希校验：确保下载的每个文件与仓库发布一致（损坏/篡改直接拒绝）
-  if ! (cd "$PKG_DIR" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+  # --ignore-missing：bin/ 预编译包只在装 3proxy 时按需下载，此处跳过缺失项
+  if ! (cd "$PKG_DIR" && sha256sum -c --ignore-missing SHA256SUMS >/dev/null 2>&1); then
     err "SHA256 哈希校验失败，已中止（文件可能损坏或被篡改）："
-    (cd "$PKG_DIR" && sha256sum -c SHA256SUMS 2>&1 | grep -v ': OK$' || true)
+    (cd "$PKG_DIR" && sha256sum -c --ignore-missing SHA256SUMS 2>&1 | grep -v ': OK$' || true)
     exit 1
   fi
   ok "组件下载完成，SHA256 哈希校验通过"

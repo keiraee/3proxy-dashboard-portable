@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 安装 3proxy 本体：源码编译真实安装（Debian/Ubuntu）
+# 安装 3proxy 本体：优先下载预编译静态二进制（免编译，适合 512M 小机器）
+# 下载失败或非 amd64/arm64 架构时自动回退源码编译
 # 用法： sudo bash install/install-3proxy.sh
 # 环境变量： SOCKS_PORT=1234 可覆盖默认端口
 set -euo pipefail
@@ -14,7 +15,8 @@ LOG_DIR="/var/log/3proxy"
 SERVICE_SRC="$SCRIPT_DIR/3proxy.service"
 SERVICE_DST="/etc/systemd/system/3proxy.service"
 SOCKS_PORT="${SOCKS_PORT:-1234}"
-# 3proxy 官方 releases 只发源码包；固定版本，master 兜底
+# 3proxy 官方 releases 只发源码；预编译二进制由本仓库 bin/ 提供
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main}"
 VER3PROXY="0.9.4"
 # 国内服务器直连 GitHub 失败时走镜像（GH_MIRROR= 可禁用）
 GH_MIRROR="${GH_MIRROR-https://gh-proxy.com/}"
@@ -24,36 +26,72 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "===== 安装 3proxy（源码编译） ====="
+echo "===== 安装 3proxy ====="
 
 apt-get update -qq
-apt-get install -y build-essential curl ca-certificates tar openssl >/dev/null
+apt-get install -y curl ca-certificates openssl >/dev/null
 
 fetch() { # fetch <url> <输出文件>：直连失败走镜像
   curl -fsSL --connect-timeout 15 -o "$2" "$1" \
     || curl -fsSL --connect-timeout 15 -o "$2" "${GH_MIRROR}$1"
 }
 
-if [[ ! -f "$SRC_DIR/Makefile.Linux" ]]; then
-  echo "下载 3proxy ${VER3PROXY} 源码..."
-  TMP_TAR="$(mktemp -d)"
-  if ! fetch "https://github.com/3proxy/3proxy/archive/refs/tags/${VER3PROXY}.tar.gz" "$TMP_TAR/3proxy.tar.gz"; then
-    echo "tag ${VER3PROXY} 下载失败，改用 master 分支"
-    fetch "https://github.com/3proxy/3proxy/archive/refs/heads/master.tar.gz" "$TMP_TAR/3proxy.tar.gz"
+mkdir -p "$BIN_DIR" "$CFG_DIR" "$LOG_DIR"
+
+if [[ ! -x "$BIN_DIR/3proxy" ]]; then
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    x86_64|amd64)  ARCH=amd64 ;;
+    aarch64|arm64) ARCH=arm64 ;;
+    *)             ARCH="" ;;
+  esac
+
+  GOT=0
+  if [[ -n "$ARCH" ]]; then
+    echo "下载预编译 3proxy（linux-${ARCH} 静态二进制，免编译）..."
+    TMP_TAR="$(mktemp -d)"
+    if fetch "$REPO_RAW/bin/3proxy-linux-${ARCH}.gz" "$TMP_TAR/3proxy.gz" \
+      && fetch "$REPO_RAW/SHA256SUMS" "$TMP_TAR/SHA256SUMS"; then
+      WANT="$(grep "bin/3proxy-linux-${ARCH}.gz" "$TMP_TAR/SHA256SUMS" | awk '{print $1}')"
+      GOT_HASH="$(sha256sum "$TMP_TAR/3proxy.gz" | awk '{print $1}')"
+      if [[ -n "$WANT" && "$WANT" == "$GOT_HASH" ]]; then
+        gunzip -c "$TMP_TAR/3proxy.gz" >"$BIN_DIR/3proxy"
+        chmod 755 "$BIN_DIR/3proxy"
+        GOT=1
+        echo "预编译二进制安装完成（SHA256 校验通过）"
+      else
+        echo "SHA256 校验失败，弃用预编译包"
+      fi
+    fi
+    rm -rf "$TMP_TAR"
   fi
-  mkdir -p "$SRC_DIR"
-  tar -xzf "$TMP_TAR/3proxy.tar.gz" -C "$TMP_TAR"
-  SRC_FOUND="$(find "$TMP_TAR" -maxdepth 1 -mindepth 1 -type d | head -n 1)"
-  cp -a "$SRC_FOUND"/. "$SRC_DIR/"
-  rm -rf "$TMP_TAR"
+
+  if [[ "$GOT" -eq 0 ]]; then
+    echo "预编译不可用（架构不支持或下载失败），改用源码编译..."
+    apt-get install -y build-essential tar >/dev/null
+    if [[ ! -f "$SRC_DIR/Makefile.Linux" ]]; then
+      echo "下载 3proxy ${VER3PROXY} 源码..."
+      TMP_TAR="$(mktemp -d)"
+      if ! fetch "https://github.com/3proxy/3proxy/archive/refs/tags/${VER3PROXY}.tar.gz" "$TMP_TAR/3proxy.tar.gz"; then
+        echo "tag ${VER3PROXY} 下载失败，改用 master 分支"
+        fetch "https://github.com/3proxy/3proxy/archive/refs/heads/master.tar.gz" "$TMP_TAR/3proxy.tar.gz"
+      fi
+      mkdir -p "$SRC_DIR"
+      tar -xzf "$TMP_TAR/3proxy.tar.gz" -C "$TMP_TAR"
+      SRC_FOUND="$(find "$TMP_TAR" -maxdepth 1 -mindepth 1 -type d | head -n 1)"
+      cp -a "$SRC_FOUND"/. "$SRC_DIR/"
+      rm -rf "$TMP_TAR"
+    fi
+    echo "编译 3proxy..."
+    make -C "$SRC_DIR" -f Makefile.Linux >/dev/null
+    install -m 755 "$SRC_DIR/bin/3proxy" "$BIN_DIR/3proxy"
+  fi
 fi
 
-echo "编译 3proxy（约 1 分钟）..."
-make -C "$SRC_DIR" -f Makefile.Linux >/dev/null
-
-mkdir -p "$BIN_DIR" "$CFG_DIR" "$LOG_DIR"
-install -m 755 "$SRC_DIR/bin/3proxy" "$BIN_DIR/3proxy"
-[[ -f "$SRC_DIR/bin/mycrypt" ]] && install -m 755 "$SRC_DIR/bin/mycrypt" "$BIN_DIR/mycrypt"
+if [[ ! -x "$BIN_DIR/3proxy" ]]; then
+  echo "3proxy 安装失败：$BIN_DIR/3proxy 不存在"
+  exit 1
+fi
 
 if [[ ! -f "$CFG_FILE" ]]; then
   systemctl stop 3proxy 2>/dev/null || true

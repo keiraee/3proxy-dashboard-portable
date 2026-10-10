@@ -56,7 +56,7 @@ sudo bash install.sh
 
 ### 安装时会发生什么
 
-1. 安装编译工具，拉取 3proxy 官方源码（v0.9.4，失败回退 master）本地编译
+1. 下载**预编译 3proxy 静态二进制**（amd64/arm64，约 150KB，SHA256 校验），**不装编译器、不占内存**——512M 小机器无压力；下载失败或特殊架构才回退源码编译（此时才装编译工具）
 2. 检测 SOCKS5（默认 1234）与面板（默认 18080）端口，**被占用自动顺延**
 3. 生成 `/etc/3proxy/3proxy.cfg`（含随机 SOCKS 账号密码）与 systemd 服务
 4. 面板建 venv 装 flask+gunicorn，生成 `/etc/3proxy-dashboard.env`（随机 admin 密码）
@@ -152,13 +152,15 @@ install/install-dashboard.sh
 install/3proxy.service
 install/3proxy-dashboard.service
 install.sh
+bin/3proxy-linux-amd64.gz
 ```
 
 **每次改动后、提交前必须重新生成**（否则 `3p update` 会校验失败拒绝更新）：
 
 ```bash
 sha256sum app/app.py install/install-3proxy.sh install/install-dashboard.sh \
-  install/3proxy.service install/3proxy-dashboard.service install.sh > SHA256SUMS
+  install/3proxy.service install/3proxy-dashboard.service install.sh \
+  bin/3proxy-linux-amd64.gz > SHA256SUMS
 ```
 
 手动核对（可选）：
@@ -194,6 +196,8 @@ sha256sum -c SHA256SUMS        # 在仓库根目录执行，全部 OK 即一致
 
 **日志在哪**：3proxy 流量日志 `/var/log/3proxy/access.log`；面板日志 `journalctl -u 3proxy-dashboard`；面板流量统计由日志增量解析而来。
 
-**3proxy 本体要不要跟着更新**：`3p update` 只更新面板与脚本，不动 3proxy 二进制（生产稳定优先）。要升本体：`sudo bash install/install-3proxy.sh`（配置与账号保留）。
+**3proxy 本体要不要跟着更新**：`3p update` 只更新面板与脚本，不动 3proxy 二进制（生产稳定优先）。要升本体：删掉 `/opt/3proxy/bin/3proxy` 后 `sudo bash install/install-3proxy.sh`（配置与账号保留）。
+
+**为什么不用编译安装？** 3proxy 官方 releases 只发源码、没有预编译包（不像 hysteria2）。本仓库 `bin/` 直接提供 **musl 静态编译**的二进制（任何 Linux 发行版通用、与 glibc 版本无关），安装时直接下载并 SHA256 校验——512M 内存小机器全程不装编译器。编译只是兜底路径。
 
 **旧服务器数据**：无需拷贝 `dashboard_v3.db`，首次启动自动建表并从 `3proxy.cfg` 导入用户名。
