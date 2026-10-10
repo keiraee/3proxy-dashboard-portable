@@ -14,14 +14,24 @@ sudo bash install.sh
 bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/3proxy-dashboard-portable/main/install.sh)
 ```
 
-`install.sh` 是交互菜单（也支持 `install` / `uninstall` / `status` 参数）：
+`install.sh` 是交互菜单（也支持 `install` / `uninstall` / `status` / `restart` 参数）：
 
 ```
 1. 一键安装（3proxy + 管理面板）
 2. 仅安装 3proxy（SOCKS5）
 3. 仅安装管理面板
-4. 卸载全部
-5. 查看状态与账号
+4. 重启服务
+5. 卸载全部
+6. 查看状态与账号
+```
+
+安装完成后会注册全局命令 `3p`，日常管理在任意目录敲 `3p` 即可：
+
+```bash
+3p              # 打开管理菜单
+3p status       # 查看状态与账号
+3p restart      # 重启服务
+3p uninstall    # 卸载
 ```
 
 安装脚本会**真实安装 3proxy**：自动装编译工具 → 拉取官方源码（GitHub，失败自动走 gh-proxy 镜像）→ 本地编译 → 注册 systemd 服务，并生成随机 SOCKS 账号密码，装完直接打印连接信息。

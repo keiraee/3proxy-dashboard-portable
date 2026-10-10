@@ -6,6 +6,9 @@
 #   sudo bash install.sh install      # 一键安装 3proxy + 管理面板
 #   sudo bash install.sh uninstall    # 卸载
 #   sudo bash install.sh status       # 查看状态与账号
+#   sudo bash install.sh restart      # 重启服务
+#
+# 安装完成后终端输入 3p 即可随时打开管理菜单（等同 bash install.sh）
 #
 # 任意服务器单行拉起（推送 GitHub 后把 REPO_RAW 改成你的仓库地址）：
 #   bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/3proxy-dashboard-portable/main/install.sh)
@@ -39,6 +42,7 @@ prepare_package() {
   mkdir -p "$PKG_DIR/app" "$PKG_DIR/install"
   local f
   for f in \
+    install.sh \
     app/app.py \
     install/install-3proxy.sh \
     install/install-dashboard.sh \
@@ -49,12 +53,26 @@ prepare_package() {
   ok "组件下载完成"
 }
 
+install_cli() {
+  # 装完注册 3p 管理命令：终端敲 3p 即可打开本菜单
+  prepare_package
+  install -m 755 "$PKG_DIR/install.sh" /usr/local/bin/3p
+  ok "管理命令已安装：终端输入 3p 打开管理菜单"
+}
+
+do_restart() {
+  systemctl restart 3proxy 3proxy-dashboard 2>/dev/null || true
+  ok "已重启 3proxy 与管理面板"
+}
+
 do_install() {
   prepare_package
   echo -e "${CYAN}===== 一键安装 3proxy + 管理面板 =====${NC}"
   bash "$PKG_DIR/install/install-3proxy.sh"
   echo
   bash "$PKG_DIR/install/install-dashboard.sh"
+  echo
+  install_cli
   echo
   do_status
 }
@@ -66,6 +84,7 @@ do_uninstall() {
   rm -f /etc/systemd/system/3proxy.service /etc/systemd/system/3proxy-dashboard.service
   systemctl daemon-reload
   rm -rf /opt/3proxy /opt/3proxy-dashboard /etc/3proxy-dashboard.env
+  rm -f /usr/local/bin/3p
   ok "已卸载（保留 /etc/3proxy 配置与 /var/log/3proxy 日志，如需删除请手动 rm）"
 }
 
@@ -94,23 +113,25 @@ do_status() {
 menu() {
   echo -e "${CYAN}"
   echo "========================================"
-  echo "   3proxy Dashboard 一键部署脚本"
+  echo "   3proxy 管理菜单（命令：3p）"
   echo "========================================"
   echo -e "${NC}"
   echo " 1. 一键安装（3proxy + 管理面板）"
   echo " 2. 仅安装 3proxy（SOCKS5）"
   echo " 3. 仅安装管理面板"
-  echo " 4. 卸载全部"
-  echo " 5. 查看状态与账号"
+  echo " 4. 重启服务"
+  echo " 5. 卸载全部"
+  echo " 6. 查看状态与账号"
   echo " 0. 退出"
   echo
-  read -r -p "请选择 [0-5]: " opt || opt=0
+  read -r -p "请选择 [0-6]: " opt || opt=0
   case "$opt" in
     1) do_install ;;
-    2) prepare_package; bash "$PKG_DIR/install/install-3proxy.sh" ;;
-    3) prepare_package; bash "$PKG_DIR/install/install-dashboard.sh" ;;
-    4) read -r -p "确认卸载? [y/N]: " c; [[ "$c" == "y" || "$c" == "Y" ]] && do_uninstall ;;
-    5) do_status ;;
+    2) prepare_package; bash "$PKG_DIR/install/install-3proxy.sh"; install_cli ;;
+    3) prepare_package; bash "$PKG_DIR/install/install-dashboard.sh"; install_cli ;;
+    4) do_restart ;;
+    5) read -r -p "确认卸载? [y/N]: " c; [[ "$c" == "y" || "$c" == "Y" ]] && do_uninstall ;;
+    6) do_status ;;
     0) exit 0 ;;
     *) err "无效选项"; exit 1 ;;
   esac
@@ -125,5 +146,6 @@ case "${1:-menu}" in
   install|all)  do_install ;;
   uninstall)    do_uninstall ;;
   status)       do_status ;;
+  restart)      do_restart ;;
   menu|*)       menu ;;
 esac
