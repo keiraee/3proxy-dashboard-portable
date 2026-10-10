@@ -4,6 +4,7 @@
 # 用法：
 #   sudo bash install.sh              # 交互菜单
 #   sudo bash install.sh install      # 一键安装 3proxy + 管理面板
+#   sudo bash install.sh update       # 更新到最新版（main 分支，SHA256 哈希校验）
 #   sudo bash install.sh caddy        # 追加 Caddy 反代（不动已有配置）并申请 HTTPS
 #   sudo bash install.sh cert         # 重新申请 HTTPS 证书（首次失败后手动重试）
 #   sudo bash install.sh status       # 查看状态与账号
@@ -12,12 +13,12 @@
 #
 # 安装完成后终端输入 3p 即可随时打开管理菜单（等同 bash install.sh）
 #
-# 任意服务器单行拉起（推送 GitHub 后把 REPO_RAW 改成你的仓库地址）：
-#   bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/3proxy-dashboard-portable/main/install.sh)
+# 任意服务器单行拉起：
+#   bash <(curl -fsSL https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main/install.sh)
 set -euo pipefail
 
-# 推送到 GitHub 后改成你的仓库 raw 地址
-REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/你的用户名/3proxy-dashboard-portable/main}"
+# 更新轨道：main 分支（Release 仅作稳定版本快照，见 README）
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main}"
 GH_MIRROR="${GH_MIRROR-https://gh-proxy.com/}"
 CADDYFILE="/etc/caddy/Caddyfile"
 CADDY_MARK="# --- 3proxy dashboard (由 3p 追加) ---"
@@ -46,6 +47,7 @@ prepare_package() {
   mkdir -p "$PKG_DIR/app" "$PKG_DIR/install"
   local f
   for f in \
+    SHA256SUMS \
     install.sh \
     app/app.py \
     install/install-3proxy.sh \
@@ -54,7 +56,13 @@ prepare_package() {
     install/3proxy-dashboard.service; do
     fetch "$REPO_RAW/$f" "$PKG_DIR/$f" || { err "下载 $f 失败，请检查 REPO_RAW"; exit 1; }
   done
-  ok "组件下载完成"
+  # 哈希校验：确保下载的每个文件与仓库发布一致（损坏/篡改直接拒绝）
+  if ! (cd "$PKG_DIR" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+    err "SHA256 哈希校验失败，已中止（文件可能损坏或被篡改）："
+    (cd "$PKG_DIR" && sha256sum -c SHA256SUMS 2>&1 | grep -v ': OK$' || true)
+    exit 1
+  fi
+  ok "组件下载完成，SHA256 哈希校验通过"
 }
 
 install_cli() {
@@ -83,6 +91,19 @@ do_install() {
   echo
   install_cli
   echo
+  do_status
+}
+
+do_update() {
+  echo -e "${CYAN}===== 更新到最新版（main 分支，SHA256 校验） =====${NC}"
+  PKG_DIR="" # 强制从仓库重新拉取最新文件
+  prepare_package
+  bash "$PKG_DIR/install/install-dashboard.sh"
+  if [[ ! -x /opt/3proxy/bin/3proxy ]]; then
+    bash "$PKG_DIR/install/install-3proxy.sh"
+  fi
+  install_cli
+  ok "更新完成（3proxy 本体未动，需升级本体请手动执行 install/install-3proxy.sh）"
   do_status
 }
 
@@ -190,11 +211,13 @@ do_status() {
       warn "$s: 未运行"
     fi
   done
-  local socks_port port
+  local socks_port port app_hash
   socks_port="$(grep -oP 'socks\s+-p\K[0-9]+' /etc/3proxy/3proxy.cfg 2>/dev/null | head -n 1 || true)"
   port="$(panel_port)"
   port="${port:-18080}"
+  app_hash="$(sha256sum /opt/3proxy-dashboard/app.py 2>/dev/null | cut -c1-12 || true)"
   echo "SOCKS5 端口: ${socks_port:-1234}  面板端口: ${port}（仅本机，需反代）"
+  echo "面板哈希: ${app_hash:-未安装}（对照仓库 SHA256SUMS 确认版本）"
   if [[ -f /etc/3proxy-dashboard.env ]]; then
     echo "----- 面板账号（/etc/3proxy-dashboard.env） -----"
     grep -E '^ADMIN_(USER|PASS)=' /etc/3proxy-dashboard.env || true
@@ -214,23 +237,25 @@ menu() {
   echo " 1. 一键安装（3proxy + 管理面板）"
   echo " 2. 仅安装 3proxy（SOCKS5）"
   echo " 3. 仅安装管理面板"
-  echo " 4. 配置 Caddy 反代（追加式，自动申请 HTTPS）"
-  echo " 5. 重新申请 HTTPS 证书（首次失败后重试）"
-  echo " 6. 重启服务"
-  echo " 7. 卸载全部"
-  echo " 8. 查看状态与账号"
+  echo " 4. 更新到最新版（main 分支，SHA256 校验）"
+  echo " 5. 配置 Caddy 反代（追加式，自动申请 HTTPS）"
+  echo " 6. 重新申请 HTTPS 证书（首次失败后重试）"
+  echo " 7. 重启服务"
+  echo " 8. 卸载全部"
+  echo " 9. 查看状态与账号"
   echo " 0. 退出"
   echo
-  read -r -p "请选择 [0-8]: " opt || opt=0
+  read -r -p "请选择 [0-9]: " opt || opt=0
   case "$opt" in
     1) do_install ;;
     2) prepare_package; bash "$PKG_DIR/install/install-3proxy.sh"; install_cli ;;
     3) prepare_package; bash "$PKG_DIR/install/install-dashboard.sh"; install_cli ;;
-    4) do_caddy ;;
-    5) do_cert ;;
-    6) do_restart ;;
-    7) read -r -p "确认卸载? [y/N]: " c; [[ "$c" == "y" || "$c" == "Y" ]] && do_uninstall ;;
-    8) do_status ;;
+    4) do_update ;;
+    5) do_caddy ;;
+    6) do_cert ;;
+    7) do_restart ;;
+    8) read -r -p "确认卸载? [y/N]: " c; [[ "$c" == "y" || "$c" == "Y" ]] && do_uninstall ;;
+    9) do_status ;;
     0) exit 0 ;;
     *) err "无效选项"; exit 1 ;;
   esac
@@ -243,6 +268,7 @@ fi
 
 case "${1:-menu}" in
   install|all)  do_install ;;
+  update)       do_update ;;
   caddy)        do_caddy ;;
   cert)         do_cert ;;
   uninstall)    do_uninstall ;;
