@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# 安装 3proxy 本体：源码编译真实安装（Debian/Ubuntu）
+# 用法： sudo bash install/install-3proxy.sh
+# 环境变量： SOCKS_PORT=1234 可覆盖默认端口
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPT_DIR="/opt/3proxy"
+SRC_DIR="$OPT_DIR/source"
+BIN_DIR="$OPT_DIR/bin"
+CFG_DIR="/etc/3proxy"
+CFG_FILE="$CFG_DIR/3proxy.cfg"
+LOG_DIR="/var/log/3proxy"
+SERVICE_SRC="$SCRIPT_DIR/3proxy.service"
+SERVICE_DST="/etc/systemd/system/3proxy.service"
+SOCKS_PORT="${SOCKS_PORT:-1234}"
+# 3proxy 官方 releases 只发源码包；固定版本，master 兜底
+VER3PROXY="0.9.4"
+# 国内服务器直连 GitHub 失败时走镜像（GH_MIRROR= 可禁用）
+GH_MIRROR="${GH_MIRROR-https://gh-proxy.com/}"
+
+if [[ $EUID -ne 0 ]]; then
+  echo "请用 root / sudo 运行"
+  exit 1
+fi
+
+echo "===== 安装 3proxy（源码编译） ====="
+
+apt-get update -qq
+apt-get install -y build-essential curl ca-certificates tar openssl >/dev/null
+
+fetch() { # fetch <url> <输出文件>：直连失败走镜像
+  curl -fsSL --connect-timeout 15 -o "$2" "$1" \
+    || curl -fsSL --connect-timeout 15 -o "$2" "${GH_MIRROR}$1"
+}
+
+if [[ ! -f "$SRC_DIR/Makefile.Linux" ]]; then
+  echo "下载 3proxy ${VER3PROXY} 源码..."
+  TMP_TAR="$(mktemp -d)"
+  if ! fetch "https://github.com/3proxy/3proxy/archive/refs/tags/${VER3PROXY}.tar.gz" "$TMP_TAR/3proxy.tar.gz"; then
+    echo "tag ${VER3PROXY} 下载失败，改用 master 分支"
+    fetch "https://github.com/3proxy/3proxy/archive/refs/heads/master.tar.gz" "$TMP_TAR/3proxy.tar.gz"
+  fi
+  mkdir -p "$SRC_DIR"
+  tar -xzf "$TMP_TAR/3proxy.tar.gz" -C "$TMP_TAR"
+  SRC_FOUND="$(find "$TMP_TAR" -maxdepth 1 -mindepth 1 -type d | head -n 1)"
+  cp -a "$SRC_FOUND"/. "$SRC_DIR/"
+  rm -rf "$TMP_TAR"
+fi
+
+echo "编译 3proxy（约 1 分钟）..."
+make -C "$SRC_DIR" -f Makefile.Linux >/dev/null
+
+mkdir -p "$BIN_DIR" "$CFG_DIR" "$LOG_DIR"
+install -m 755 "$SRC_DIR/bin/3proxy" "$BIN_DIR/3proxy"
+[[ -f "$SRC_DIR/bin/mycrypt" ]] && install -m 755 "$SRC_DIR/bin/mycrypt" "$BIN_DIR/mycrypt"
+
+if [[ ! -f "$CFG_FILE" ]]; then
+  SOCKS_USER="u$(openssl rand -hex 4)"
+  SOCKS_PASS="$(openssl rand -base64 16 | tr -dc 'A-Za-z0-9' | head -c 16)"
+  cat >"$CFG_FILE" <<EOF
+# 由 install-3proxy.sh 生成
+# 用户行 users <用户名>:CL:<密码> 通过管理面板维护
+maxconn 100
+
+nserver 1.1.1.1
+nserver 8.8.8.8
+
+timeouts 1 5 30 60 180 1800 15 60
+
+log /var/log/3proxy/access.log
+logformat "-L%t %U %C:%c %R:%r IN:%I OUT:%O"
+
+auth strong
+
+users ${SOCKS_USER}:CL:${SOCKS_PASS}
+
+socks -p${SOCKS_PORT}
+
+flush
+EOF
+  chmod 600 "$CFG_FILE"
+  NEW_USER=1
+  echo "已生成配置 $CFG_FILE"
+else
+  NEW_USER=0
+  echo "保留已有 $CFG_FILE"
+fi
+
+cp "$SERVICE_SRC" "$SERVICE_DST"
+systemctl daemon-reload
+systemctl enable 3proxy >/dev/null
+systemctl restart 3proxy
+
+sleep 1
+if ! systemctl is-active --quiet 3proxy; then
+  echo "3proxy 启动失败，查看日志："
+  journalctl -u 3proxy -n 30 --no-pager
+  exit 1
+fi
+
+PUBLIC_IP="$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo "服务器IP")"
+echo "===== 3proxy 安装完成 ====="
+echo "SOCKS5: ${PUBLIC_IP}:${SOCKS_PORT}"
+if [[ "$NEW_USER" -eq 1 ]]; then
+  echo "用户名: ${SOCKS_USER}"
+  echo "密码:   ${SOCKS_PASS}"
+else
+  echo "账号见 $CFG_FILE 的 users 行"
+fi
