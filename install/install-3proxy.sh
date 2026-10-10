@@ -56,6 +56,12 @@ install -m 755 "$SRC_DIR/bin/3proxy" "$BIN_DIR/3proxy"
 [[ -f "$SRC_DIR/bin/mycrypt" ]] && install -m 755 "$SRC_DIR/bin/mycrypt" "$BIN_DIR/mycrypt"
 
 if [[ ! -f "$CFG_FILE" ]]; then
+  systemctl stop 3proxy 2>/dev/null || true
+  # SOCKS 端口冲突自动让位（服务器上已有其他项目占用时顺延）
+  while ss -tln 2>/dev/null | grep -q ":${SOCKS_PORT} "; do
+    echo "端口 ${SOCKS_PORT} 已被占用，顺延..."
+    SOCKS_PORT=$((SOCKS_PORT + 1))
+  done
   SOCKS_USER="u$(openssl rand -hex 4)"
   SOCKS_PASS="$(openssl rand -base64 16 | tr -dc 'A-Za-z0-9' | head -c 16)"
   cat >"$CFG_FILE" <<EOF

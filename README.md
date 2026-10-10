@@ -20,9 +20,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/3proxy-dashb
 1. 一键安装（3proxy + 管理面板）
 2. 仅安装 3proxy（SOCKS5）
 3. 仅安装管理面板
-4. 重启服务
-5. 卸载全部
-6. 查看状态与账号
+4. 配置 Caddy 反代（追加式，自动申请 HTTPS）
+5. 重新申请 HTTPS 证书（首次失败后重试）
+6. 重启服务
+7. 卸载全部
+8. 查看状态与账号
 ```
 
 安装完成后会注册全局命令 `3p`，日常管理在任意目录敲 `3p` 即可：
@@ -31,6 +33,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/3proxy-dashb
 3p              # 打开管理菜单
 3p status       # 查看状态与账号
 3p restart      # 重启服务
+3p caddy        # 追加 Caddy 反代并申请 HTTPS
+3p cert         # 重新申请 HTTPS 证书
 3p uninstall    # 卸载
 ```
 
@@ -65,18 +69,21 @@ bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/3proxy-dashb
 
 ## 外网 HTTPS（推荐 Caddy）
 
-`/etc/caddy/Caddyfile` 末尾追加（示例见 `config/Caddyfile.example`）：
+**已有 Caddy 且在跑其他项目也安全**：`3p caddy`（菜单选项 4）只往 `/etc/caddy/Caddyfile` **末尾追加**一段带标记的 `3proxy.` 子域站点，绝不动已有配置；追加后自动校验，失败立即回滚，不影响其他项目。默认域名 `3proxy.<服务器IP>.sslip.io`（免 DNS 配置），也可输入自己的域名。
 
 ```caddy
+# --- 3proxy dashboard (由 3p 追加) ---
 3proxy.你的域名 {
     reverse_proxy 127.0.0.1:18080
 }
+# --- end 3proxy dashboard ---
 ```
 
-```bash
-caddy validate --config /etc/caddy/Caddyfile
-caddy reload --config /etc/caddy/Caddyfile
-```
+**证书申请失败怎么办**：首次 ACME 申请可能失败（比如 DNS 还没生效），此时站点打不开是正常的。菜单选项 5 / `3p cert` 可随时**手动重新申请**：校验配置 → 重启 Caddy 触发重签 → 显示申请日志，失败原因一目了然。
+
+## 端口冲突自动让位
+
+面板（默认 18080）和 SOCKS5（默认 1234）在安装时检测端口占用，被其他项目占用会自动顺延到下一个空闲端口，装完打印实际端口（`3p status` 随时可查）。
 
 ## 修改管理员密码
 
