@@ -538,6 +538,10 @@ def parse_log_incrementally():
                     if not raw_line:
                         break
 
+                    # 3proxy 仍在写入的半行(无换行结尾)留待下次解析,避免被截断入库
+                    if not raw_line.endswith(b"\n"):
+                        break
+
                     line = raw_line.decode("utf-8", errors="ignore").strip()
 
                     match = re.search(
