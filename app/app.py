@@ -617,7 +617,8 @@ def login_required(view):
 def validate_csrf():
     token = request.form.get("csrf_token", "")
 
-    if not hmac.compare_digest(token, CSRF_TOKEN):
+    # CSRF_TOKEN 为空时必须拒绝,否则空 token 会通过比较
+    if not CSRF_TOKEN or not hmac.compare_digest(token, CSRF_TOKEN):
         abort(403)
 
 
@@ -815,7 +816,13 @@ def redirect_back(fallback="index"):
     # 操作后回到来源页（仅允许站内路径，防开放重定向）
     target = request.form.get("next") or request.referrer or ""
     path = urlparse(target).path
-    if path.startswith("/") and not path.startswith("//"):
+    # 浏览器会把 \ 当作 /,因此 "/\evil.com" 同样会跳转到外站
+    if (
+        path.startswith("/")
+        and not path.startswith("//")
+        and "\\" not in path
+        and not any(ord(char) < 32 for char in path)
+    ):
         return redirect(path)
     return redirect(url_for(fallback))
 
@@ -933,10 +940,10 @@ def index():
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button type="submit">{{ "启用" if not row.enabled else "禁用" }}用户</button>
                         </form>
-                        <button type="button" onclick="copyProxy('{{ row.username }}')">复制代理连接</button>
+                        <button type="button" data-username="{{ row.username|e }}" onclick="copyProxy(this.dataset.username)">复制代理连接</button>
                         <div class="sep"></div>
                         <form method="post" action="{{ url_for('delete_user', username=row.username) }}"
-                              onsubmit="return confirm('确定永久删除用户 {{ row.username }}？&#10;该用户的流量统计会保留，但账号将从 3proxy 移除。')">
+                              data-username="{{ row.username|e }}" onsubmit="return confirm('确定永久删除用户 '+this.dataset.username+'？\\n该用户的流量统计会保留，但账号将从 3proxy 移除。')">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button class="bad" type="submit">删除用户</button>
                         </form>
@@ -2097,7 +2104,7 @@ def user_detail(username):
     </div>
     <div class="form-body">
         <div class="ops" style="justify-content:flex-start;margin-bottom:16px">
-            <button class="btn" type="button" onclick="copyProxy('{{ username }}')">复制代理连接</button>
+            <button class="btn" type="button" data-username="{{ username|e }}" onclick="copyProxy(this.dataset.username)">复制代理连接</button>
             <button class="btn" type="button" onclick="location.href='{{ url_for('export_user_csv', username=username) }}'">导出 CSV</button>
             <form method="post" action="{{ url_for('toggle_user', username=username) }}" style="display:inline">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -2105,7 +2112,7 @@ def user_detail(username):
                 <button class="btn" type="submit">{{ "启用" if not enabled else "禁用" }}</button>
             </form>
             <form method="post" action="{{ url_for('delete_user', username=username) }}" style="display:inline"
-                  onsubmit="return confirm('确定永久删除用户 {{ username }}？\\n该用户的流量统计会保留，但账号将从 3proxy 移除。')">
+                  data-username="{{ username|e }}" onsubmit="return confirm('确定永久删除用户 '+this.dataset.username+'？\\n该用户的流量统计会保留，但账号将从 3proxy 移除。')">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="next" value="{{ url_for('index') }}">
                 <button class="btn bad" type="submit">删除用户</button>
