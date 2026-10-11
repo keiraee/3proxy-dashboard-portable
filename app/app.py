@@ -220,10 +220,10 @@ function sortUsers(th){
   var table=document.getElementById("userTable");
   if(!table)return;
   var idx=Array.prototype.indexOf.call(th.parentNode.children,th);
-  var dir=th.dataset.dir==="asc"?-1:1;
-  Array.prototype.forEach.call(th.parentNode.children,function(h){h.classList.remove("active");h.removeAttribute("data-dir");});
+  var dir=th.dataset.sortdir==="asc"?-1:1;
+  Array.prototype.forEach.call(th.parentNode.children,function(h){h.classList.remove("active");h.removeAttribute("data-dir");h.removeAttribute("data-sortdir");});
   th.classList.add("active");
-  th.dataset.dir=dir===1?"asc":"desc";
+  th.dataset.sortdir=dir===1?"asc":"desc";
   th.setAttribute("data-dir",dir===1?"↑":"↓");
   var rows=Array.prototype.slice.call(table.tBodies[0].rows);
   rows.sort(function(a,b){
