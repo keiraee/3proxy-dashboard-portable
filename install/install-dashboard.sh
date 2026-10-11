@@ -29,7 +29,6 @@ apt-get -o DPkg::Lock::Timeout=300 install -y python3 python3-venv python3-pip o
 mkdir -p "$APP_DIR"
 
 systemctl stop 3proxy-dashboard 2>/dev/null || true
-pkill -f "gunicorn.*app:app" 2>/dev/null || true
 
 # 面板端口冲突自动让位（服务器上已有其他项目占用时顺延）。
 # 更新时优先沿用已部署端口：本次面板是先停再扫端口的，自己的端口必然
