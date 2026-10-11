@@ -69,7 +69,8 @@ a{color:inherit}button,input{font:inherit;color:inherit}
   padding:0 20px;background:var(--bg);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
 .nav-left,.nav-right{display:flex;align-items:center;gap:14px;min-width:0}
 .nav-right{flex-shrink:0}
-.brand{font-size:13px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+.brand{font-size:13px;font-weight:700;letter-spacing:.02em;white-space:nowrap;text-decoration:none;cursor:pointer}
+.brand:hover{opacity:.75}
 .nav-status{font-size:12px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   max-width:min(42vw,520px);font-family:var(--mono)}
 .icon-btn{width:28px;height:28px;border:1px solid var(--line);border-radius:4px;background:var(--surface);
@@ -280,14 +281,13 @@ HEADER = """
 </svg>
 <header class="topbar">
   <div class="nav-left">
-    <div class="brand">3proxy Panel</div>
+    <a class="brand" href="{{ url_for('index') }}">3proxy Panel</a>
   </div>
   <div class="nav-right">
     <div class="nav-status">SOCKS5 代理 · 时区 {{ timezone }}</div>
     <button id="themeBtn" class="icon-btn" type="button" aria-label="切换主题" title="主题" onclick="toggleTheme()">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-moon"/></svg>
     </button>
-    <a class="btn" href="{{ url_for('index') }}">总览</a>
   </div>
 </header>
 """
