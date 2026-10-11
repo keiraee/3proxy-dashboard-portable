@@ -26,7 +26,8 @@ if [[ -z "$REF" && -f "$ENV_FILE" ]]; then
   REF="$(grep -E '^UPDATE_REF=' "$ENV_FILE" | head -n 1 | cut -d= -f2- || true)"
 fi
 REF="${REF:-main}"
-REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/${REF}}"
+REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable}"
+REPO_RAW="${REPO_BASE}/${REF}"
 GH_MIRROR="${GH_MIRROR-https://gh-proxy.com/}"
 CADDYFILE="/etc/caddy/Caddyfile"
 CADDY_MARK="# --- 3proxy dashboard (由 3p 追加) ---"
@@ -68,6 +69,7 @@ fetch() {
 }
 
 prepare_package() {
+  pin_repo
   if [[ -n "$PKG_DIR" && -f "$PKG_DIR/app/app.py" ]]; then
     return
   fi
@@ -105,16 +107,31 @@ install_cli() {
 
 update_hash_file="/opt/3proxy-dashboard/.update-hash"
 
+pin_repo() {
+  # 先经 GitHub API 解析当前提交 SHA，再按 SHA 下载 —— 避开 raw 对 /main/ 的
+  # CDN 缓存（旧校验文件会让更新永远显示"已是最新"）。HY2 同款做法。
+  [[ -n "${PIN:-}" ]] && return 0
+  local sha=""
+  sha="$(curl -fsSL --connect-timeout 5 \
+    "https://api.github.com/repos/keiraee/3proxy-dashboard-portable/commits/${REF}" 2>/dev/null \
+    | grep -o '"sha":\? *"[0-9a-f]\{40\}"' | head -n 1 | cut -d'"' -f4 || true)"
+  if [[ -n "$sha" ]]; then
+    PIN="$sha"
+  else
+    PIN="$REF" # API 不可用时退回按分支名拉取
+  fi
+  REPO_RAW="${REPO_BASE}/${PIN}"
+  export REPO_RAW
+}
+
 save_update_hash() {
   mkdir -p /opt/3proxy-dashboard
   sha256sum "$PKG_DIR/SHA256SUMS" | awk '{print $1}' >"$update_hash_file"
 }
 
 current_commit() {
-  # main 轨道附带提交短号；失败不影响主流程
-  curl -fsSL --connect-timeout 5 \
-    "https://api.github.com/repos/keiraee/3proxy-dashboard-portable/commits/${REF}" 2>/dev/null \
-    | python3 -c 'import sys,json;print(json.load(sys.stdin)["sha"][:7])' 2>/dev/null || true
+  # 提交短号；API 失败时为空，不影响主流程
+  [[ -n "${PIN:-}" && ${#PIN} -eq 40 ]] && echo "${PIN:0:7}" || true
 }
 
 panel_port() {
@@ -271,6 +288,7 @@ do_update() {
   fi
   echo -e "${CYAN}===== 更新（${label}） =====${NC}"
 
+  pin_repo
   # 先只拉 SHA256SUMS 比指纹：一致=没有更新，直接跳过
   sums_tmp="$(mktemp)"
   if ! fetch "$REPO_RAW/SHA256SUMS" "$sums_tmp"; then
