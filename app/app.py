@@ -129,7 +129,6 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 th.sortable:hover{color:var(--text)}
 th.sortable.active{color:var(--text)}
 th.sortable.active::after{content:attr(data-dir);margin-left:4px;font-size:10px}
-.search{max-width:220px}
 .stack{display:flex;flex-direction:column;gap:8px}
 .modal-scrim{display:none;position:fixed;inset:0;background:rgba(17,17,17,.4);z-index:70;align-items:center;justify-content:center;padding:8px}
 .modal-scrim.open{display:flex}
@@ -209,20 +208,6 @@ document.addEventListener("submit",function(e){
   var b=e.target.querySelector("button[type=submit]");
   if(b&&!b.disabled){b.dataset.label=b.textContent;b.disabled=true;b.textContent="处理中…";}
 });
-function filterUsers(){
-  var input=document.getElementById("userFilter");
-  var table=document.getElementById("userTable");
-  if(!input||!table)return;
-  var q=input.value.toLowerCase();
-  var shown=0;
-  Array.prototype.forEach.call(table.tBodies[0].rows,function(tr){
-    var hit=(tr.dataset.name||"").toLowerCase().indexOf(q)>=0;
-    tr.style.display=hit?"":"none";
-    if(hit)shown++;
-  });
-  var empty=document.getElementById("filterEmpty");
-  if(empty)empty.style.display=shown?"none":"block";
-}
 function sortUsers(th){
   var table=document.getElementById("userTable");
   if(!table)return;
@@ -329,6 +314,13 @@ HEADER = """
     <button id="themeBtn" class="icon-btn" type="button" aria-label="切换主题" title="主题" onclick="toggleTheme()">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-moon"/></svg>
     </button>
+    <button class="btn" type="button" onclick="toggleMenu(this)">菜单</button>
+    <div class="menu">
+      <button type="button" onclick="location.href='{{ url_for('export_csv', h=1) }}'">下载日志 · 最近 1 小时</button>
+      <button type="button" onclick="location.href='{{ url_for('export_csv', h=24) }}'">下载日志 · 最近 24 小时</button>
+      <button type="button" onclick="location.href='{{ url_for('export_csv', h=72) }}'">下载日志 · 最近 3 天</button>
+      <button type="button" onclick="location.href='{{ url_for('export_csv') }}'">下载日志 · 全部</button>
+    </div>
   </div>
 </header>
 """
@@ -875,10 +867,6 @@ def index():
             <p class="hint">在线状态根据最近 3 分钟内的连接活动判断；点击用户名查看流量分析。</p>
         </div>
         <div class="ops-bar">
-            {% if rows %}
-            <input class="input search" id="userFilter" placeholder="搜索用户名…" oninput="filterUsers()">
-            {% endif %}
-            <a class="btn ghost" href="{{ url_for('export_csv') }}">导出 CSV</a>
             <button class="btn primary" type="button" onclick="openModal('addModal')">+ 新增用户</button>
         </div>
     </div>
@@ -927,6 +915,7 @@ def index():
                     </button>
                     <div class="menu">
                         <button type="button" onclick="location.href='{{ url_for('user_detail', username=row.username) }}'">查看详情</button>
+                        <button type="button" onclick="location.href='{{ url_for('export_user_csv', username=row.username) }}'">导出 CSV</button>
                         <form method="post" action="{{ url_for('toggle_user', username=row.username) }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button type="submit">{{ "启用" if not row.enabled else "禁用" }}用户</button>
@@ -948,7 +937,6 @@ def index():
     {% else %}
         <div class="empty">暂未配置任何用户。</div>
     {% endif %}
-    <div class="empty" id="filterEmpty" style="display:none">没有匹配的用户。</div>
 </section>
 
 <div class="modal-scrim" id="addModal" onclick="if(event.target===this)closeModal(this)">
@@ -1207,23 +1195,32 @@ def user_proxy(username):
     return f"socks5://{auth}@{host}:{socks_port()}"
 
 
-def export_csv_response(username=None):
+def export_csv_response(username=None, hours=None):
     parse_log_incrementally()
 
     query = (
         "SELECT ts, username, client_ip, target, download, upload, host "
         "FROM traffic"
     )
-    params = ()
+    conditions = []
+    params = []
 
     if username:
-        query += " WHERE username = ?"
-        params = (username,)
+        conditions.append("username = ?")
+        params.append(username)
+
+    if hours:
+        cutoff = int(datetime.now(TZ).timestamp()) - int(hours) * 3600
+        conditions.append("ts >= ?")
+        params.append(cutoff)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
 
     query += " ORDER BY ts DESC"
 
     with db_connection() as conn:
-        rows = conn.execute(query, params).fetchall()
+        rows = conn.execute(query, tuple(params)).fetchall()
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -1247,7 +1244,8 @@ def export_csv_response(username=None):
         )
 
     stamp = datetime.now(TZ).strftime("%Y%m%d")
-    filename = f"3proxy-{username or 'all'}-{stamp}.csv"
+    window = f"{hours}h" if hours else "all"
+    filename = f"3proxy-{username or 'all'}-{window}-{stamp}.csv"
 
     return Response(
         "﻿" + buffer.getvalue(),
@@ -1261,7 +1259,7 @@ def export_csv_response(username=None):
 @app.route("/export.csv")
 @login_required
 def export_csv():
-    return export_csv_response(None)
+    return export_csv_response(None, request.args.get("h", type=int))
 
 
 @app.route("/users/<username>/export.csv")
@@ -1651,7 +1649,6 @@ def user_detail(username):
             <h2>最近连接</h2>
             <p class="hint">最近 30 条已完成的代理连接。</p>
         </div>
-        <a class="btn ghost" href="{{ url_for('export_user_csv', username=username) }}">导出 CSV</a>
     </div>
     {% if recent %}
     <div class="table-wrap">
@@ -1695,6 +1692,7 @@ def user_detail(username):
     <div class="form-body">
         <div class="ops" style="justify-content:flex-start;margin-bottom:16px">
             <button class="btn" type="button" onclick="copyProxy('{{ username }}')">复制代理连接</button>
+            <button class="btn" type="button" onclick="location.href='{{ url_for('export_user_csv', username=username) }}'">导出 CSV</button>
             <form method="post" action="{{ url_for('toggle_user', username=username) }}" style="display:inline">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="next" value="/users/{{ username }}">
