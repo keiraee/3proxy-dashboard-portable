@@ -58,7 +58,7 @@ sudo bash install.sh
 
 1. 下载**预编译 3proxy 静态二进制**（amd64/arm64，约 150KB，SHA256 校验），**不装编译器、不占内存**——512M 小机器无压力；下载失败或特殊架构才回退源码编译（此时才装编译工具）
 2. 检测 SOCKS5（默认 1234）与面板（默认 18080）端口，**被占用自动顺延**
-3. 生成 `/etc/3proxy/3proxy.cfg` 与 systemd 服务；**初始 SOCKS 账号可选**（3proxy 配置必须含用户行才能认证，装前会解释并询问：生成随机账号立即可用，或写入占位用户稍后在面板创建；两者都可随时在面板删除）
+3. 生成 `/etc/3proxy/3proxy.cfg` 与 systemd 服务；**自动生成随机初始 SOCKS 账号**（3proxy 配置必须含用户行才能认证，装前会说明原因；账号可随时在面板删除/更换）
 4. 面板建 venv 装 flask+gunicorn，生成 `/etc/3proxy-dashboard.env`（随机 admin 密码）
 5. 注册 `3p` 管理命令，打印连接信息（地址/端口/账号/密码）
 6. **自动提示配置 Caddy 反代并申请 HTTPS 证书**（回车即用默认 `3proxy.<IP>.sslip.io`，免 DNS；也可输入自己的域名）
