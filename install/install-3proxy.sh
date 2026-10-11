@@ -144,12 +144,4 @@ if ! systemctl is-active --quiet 3proxy; then
   exit 1
 fi
 
-PUBLIC_IP="$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo "服务器IP")"
-echo "===== 3proxy 安装完成 ====="
-echo "SOCKS5: ${PUBLIC_IP}:${SOCKS_PORT}"
-if [[ "$NEW_USER" -eq 1 ]]; then
-  echo "用户名: ${SOCKS_USER}"
-  echo "密码:   ${SOCKS_PASS}"
-else
-  echo "账号见 $CFG_FILE 的 users 行"
-fi
+echo "3proxy 运行正常（账号汇总见安装结束输出，或 3p status）"

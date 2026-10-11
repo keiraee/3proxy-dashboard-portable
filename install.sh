@@ -22,6 +22,7 @@ REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/keiraee/3proxy-dashboard
 GH_MIRROR="${GH_MIRROR-https://gh-proxy.com/}"
 CADDYFILE="/etc/caddy/Caddyfile"
 CADDY_MARK="# --- 3proxy dashboard (由 3p 追加) ---"
+ENV_FILE="/etc/3proxy-dashboard.env"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -31,6 +32,27 @@ PKG_DIR="$(cd "$(dirname "$SCRIPT_PATH")" 2>/dev/null && pwd || echo "")"
 ok()   { echo -e "${GREEN}[OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[x]${NC} $*"; }
+
+print_banner() {
+  echo -e "${CYAN}"
+  cat <<'EOF'
+ ____  ____  ____   ____   ____   ____   ___
+|___ \|  _ \|  _ \ / __ \ / __ \ / __ \ / _ \
+  __) | |_) | |_) | |  | | |  | | |  | | | | |
+ / __/|  _ <|  _ <| |  | | |  | | |  | | |_| |
+|_____|_| \_\_| \_\_\____\ \____\ \____\ \___/
+  ____  _   _  ____ ____  ____   ___   ___  _   _
+ |  _ \| | | |/ ___/ ___||  _ \ / _ \ / _ \| \ | |
+ | | | | | | | |   \___ \| | | | | | | | | |  \| |
+ | |_| | |_| | |___ ___) | |_| | |_| | |_| | |\  |
+ |____/ \___/ \____|____/|____/ \___/ \___/|_| \_|
+EOF
+  echo -e "${NC}"
+  echo "Welcome 3proxy Dashboard"
+  echo "作者 @keiraee"
+  echo "开源地址：https://github.com/keiraee/3proxy-dashboard-portable.git"
+  echo
+}
 
 fetch() {
   curl -fsSL --connect-timeout 15 -o "$2" "$1" \
@@ -78,56 +100,135 @@ panel_port() {
   grep -oP 'bind 127\.0\.0\.1:\K[0-9]+' /etc/systemd/system/3proxy-dashboard.service 2>/dev/null | head -n 1
 }
 
+panel_domain() {
+  # 已配置的反代域名（Caddyfile 标记段首行）
+  awk '/3proxy dashboard \(由 3p 追加\)/{getline; print $1; exit}' "$CADDYFILE" 2>/dev/null | tr -d '{} '
+}
+
+socks_port() {
+  grep -oP 'socks\s+-p\K[0-9]+' /etc/3proxy/3proxy.cfg 2>/dev/null | head -n 1
+}
+
+socks_creds() {
+  # 从 3proxy 配置解析首个用户：user:CL:pass
+  grep -oP '^users\s+\K\S+' /etc/3proxy/3proxy.cfg 2>/dev/null | head -n 1
+}
+
+env_get() {
+  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n 1 | cut -d= -f2-
+}
+
+print_summary() {
+  # 统一汇总：只给真正要用的信息（hy2 同款格式）
+  local mode="${1:-all}"
+  local public_ip domain s_port s_creds s_user s_pass a_user a_pass
+  public_ip="$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo "服务器IP")"
+  domain="$(panel_domain)"
+  s_port="$(socks_port)"
+  s_port="${s_port:-1234}"
+  s_creds="$(socks_creds)"
+  s_user="${s_creds%%:*}"
+  s_pass="${s_creds#*CL:}"
+  a_user="$(env_get ADMIN_USER)"
+  a_pass="$(env_get ADMIN_PASS)"
+
+  echo
+  print_banner
+  echo "============================================================"
+  echo " 安装完成"
+  echo "============================================================"
+  if [[ "$mode" != "socks" && -n "$a_user" ]]; then
+    if [[ -n "$domain" ]]; then
+      echo "面板地址：https://${domain}/"
+    else
+      echo "面板地址：http://127.0.0.1:$(panel_port)/（仅本机，外网执行 3p caddy 开通）"
+    fi
+    echo "面板账号：${a_user}"
+    echo "面板密码：${a_pass}"
+  fi
+  if [[ "$mode" != "panel" && -n "$s_user" && "$s_user" != "__no_active_users__" ]]; then
+    echo
+    echo "SOCKS5：${public_ip}:${s_port}"
+    echo "用户名：${s_user}"
+    echo "密码：  ${s_pass}"
+  fi
+  echo
+  echo "以后查看账号：3p status"
+  echo "以后常用（需 root）："
+  echo "  3p              # 菜单"
+  echo "  3p update       # 更新到最新版（SHA256 校验）"
+  echo "  3p cert         # 证书没签下来时重新申请"
+  echo
+  echo "云控制台防火墙请放行：TCP 80、TCP 443、TCP ${s_port}"
+  echo "============================================================"
+}
+
+test_https() {
+  # 等 HTTPS 证书与面板就绪（hy2 同款实测）
+  local domain="$1" a_user a_pass code=""
+  [[ -z "$domain" ]] && return 0
+  a_user="$(env_get ADMIN_USER)"
+  a_pass="$(env_get ADMIN_PASS)"
+  echo "等待 HTTPS 证书与面板可用..."
+  for _ in $(seq 1 12); do
+    code="$(curl -fsS -u "${a_user}:${a_pass}" -o /dev/null -w '%{http_code}' \
+      --connect-timeout 5 --max-time 12 "https://${domain}/" 2>/dev/null || true)"
+    [[ "$code" == "200" ]] && break
+    sleep 5
+  done
+  if [[ "$code" == "200" ]]; then
+    ok "HTTPS 面板测试成功：HTTP 200"
+  else
+    warn "面板 HTTPS 暂未成功（可能证书还在签发）。稍后重试：3p cert"
+  fi
+}
+
+show_ports() {
+  local s_port
+  s_port="$(socks_port)"
+  s_port="${s_port:-1234}"
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    ufw allow 80/tcp >/dev/null 2>&1
+    ufw allow 443/tcp >/dev/null 2>&1
+    ufw allow "${s_port}/tcp" >/dev/null 2>&1
+    ok "本机 ufw 已自动放行 80/443/${s_port}（云安全组仍需控制台操作）"
+  elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
+    firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
+    firewall-cmd --permanent --add-port="${s_port}/tcp" >/dev/null 2>&1
+    firewall-cmd --reload >/dev/null 2>&1
+    ok "本机 firewalld 已自动放行 80/443/${s_port}（云安全组仍需控制台操作）"
+  fi
+}
+
 do_restart() {
   systemctl restart 3proxy 3proxy-dashboard 2>/dev/null || true
   ok "已重启 3proxy 与管理面板"
 }
 
-show_ports() {
-  local socks_port
-  socks_port="$(grep -oP 'socks\s+-p\K[0-9]+' /etc/3proxy/3proxy.cfg 2>/dev/null | head -n 1)"
-  socks_port="${socks_port:-1234}"
-  echo -e "${CYAN}----- 需放行端口（本机防火墙 + 云服务商安全组） -----${NC}"
-  echo "  TCP 80, 443    —— HTTPS 面板与证书申请（Caddy）"
-  echo "  TCP ${socks_port}       —— SOCKS5 代理"
-  echo "云服务商安全组/防火墙（AWS Lightsail、阿里云、腾讯云等）请到控制台放行上述端口"
-  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
-    ufw allow 80/tcp >/dev/null 2>&1
-    ufw allow 443/tcp >/dev/null 2>&1
-    ufw allow "${socks_port}/tcp" >/dev/null 2>&1
-    ok "本机 ufw 已自动放行 80/443/${socks_port}（云安全组仍需控制台操作）"
-  elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
-    firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
-    firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
-    firewall-cmd --permanent --add-port="${socks_port}/tcp" >/dev/null 2>&1
-    firewall-cmd --reload >/dev/null 2>&1
-    ok "本机 firewalld 已自动放行 80/443/${socks_port}（云安全组仍需控制台操作）"
-  else
-    warn "未检测到启用中的本机防火墙（ufw/firewalld），只差云安全组一步"
-  fi
-}
-
 do_install() {
   prepare_package
-  echo -e "${CYAN}===== 一键安装 3proxy + 管理面板 =====${NC}"
+  echo "============================================================"
+  echo " 一键安装 3proxy + 管理面板"
+  echo "============================================================"
+  echo "[1/4] 安装 3proxy 本体"
   bash "$PKG_DIR/install/install-3proxy.sh"
-  echo
+  echo "[2/4] 安装管理面板"
   bash "$PKG_DIR/install/install-dashboard.sh"
-  echo
+  echo "[3/4] 配置 HTTPS"
   install_cli
-  echo
-  # 安装完成直接配置 HTTPS（默认 Y，无人值守时用默认域名自动继续）
-  local caddy_ans=""
-  read -r -p "是否配置 Caddy 反代并申请 HTTPS 证书? [Y/n]: " caddy_ans || caddy_ans="y"
+  local caddy_ans="" domain=""
+  read -r -p "配置 Caddy 反代并申请 HTTPS 证书? [Y/n]: " caddy_ans || caddy_ans="y"
   if [[ -z "$caddy_ans" || "$caddy_ans" == [Yy] ]]; then
     do_caddy
-    echo
   else
-    warn "跳过 HTTPS 配置（之后可随时执行 3p caddy / 菜单选项 5）"
+    warn "跳过 HTTPS 配置（之后执行 3p caddy 开通）"
   fi
   show_ports
-  echo
-  do_status
+  echo "[4/4] 验证"
+  domain="$(panel_domain)"
+  test_https "$domain"
+  print_summary all
 }
 
 do_update() {
@@ -139,13 +240,12 @@ do_update() {
     bash "$PKG_DIR/install/install-3proxy.sh"
   fi
   install_cli
-  ok "更新完成（3proxy 本体未动，需升级本体请手动执行 install/install-3proxy.sh）"
+  ok "更新完成（3proxy 本体未动，需升级本体请删除 /opt/3proxy/bin/3proxy 后执行 install/install-3proxy.sh）"
   do_status
 }
 
 do_caddy() {
   # 只往 Caddyfile 末尾追加 3proxy. 子域站点，绝不改动已有项目配置
-  echo -e "${CYAN}===== 配置 Caddy 反代（追加模式） =====${NC}"
   if ! command -v caddy >/dev/null 2>&1; then
     warn "未检测到 Caddy，正在安装..."
     apt-get -o DPkg::Lock::Timeout=300 update -qq || true
@@ -162,7 +262,7 @@ do_caddy() {
   fi
 
   if grep -qF "$CADDY_MARK" "$CADDYFILE" 2>/dev/null; then
-    warn "Caddyfile 已包含 3proxy 配置，跳过追加（重新配置请先执行选项 5 卸载或手动删除标记段）"
+    warn "Caddyfile 已包含 3proxy 配置，跳过追加"
   else
     local public_ip default_domain domain
     public_ip="$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo "")"
@@ -197,12 +297,10 @@ EOF
 
   systemctl enable caddy >/dev/null 2>&1 || true
   do_cert
-  echo "面板地址: https://${domain:-<你的域名>}/"
 }
 
 do_cert() {
   # 手动重新申请 HTTPS 证书：首次 ACME 失败（DNS 未生效等）后可多次重试
-  echo -e "${CYAN}===== 申请/重签 HTTPS 证书 =====${NC}"
   if ! caddy validate --config "$CADDYFILE" >/dev/null 2>&1; then
     err "Caddyfile 校验失败，请先修复配置："
     caddy validate --config "$CADDYFILE" || true
@@ -216,8 +314,6 @@ do_cert() {
     err "Caddy 启动失败，查看日志： journalctl -u caddy -n 30"
     exit 1
   fi
-  echo "----- 最近的 Caddy 日志（证书申请情况） -----"
-  journalctl -u caddy -n 15 --no-pager || true
   echo "持续观察: journalctl -u caddy -f"
 }
 
@@ -227,7 +323,7 @@ do_uninstall() {
   systemctl disable 3proxy 3proxy-dashboard 2>/dev/null || true
   rm -f /etc/systemd/system/3proxy.service /etc/systemd/system/3proxy-dashboard.service
   systemctl daemon-reload
-  rm -rf /opt/3proxy /opt/3proxy-dashboard /etc/3proxy-dashboard.env
+  rm -rf /opt/3proxy /opt/3proxy-dashboard "$ENV_FILE"
   rm -f /usr/local/bin/3p
   # 只清理 3p 标记段，Caddyfile 其他项目配置原样保留
   if grep -qF "$CADDY_MARK" "$CADDYFILE" 2>/dev/null; then
@@ -239,37 +335,51 @@ do_uninstall() {
 }
 
 do_status() {
-  echo -e "${CYAN}===== 状态 =====${NC}"
-  for s in 3proxy 3proxy-dashboard caddy; do
+  local domain s_port port a_user a_pass s_creds s_user s_pass
+  domain="$(panel_domain)"
+  s_port="$(socks_port)"
+  s_port="${s_port:-1234}"
+  port="$(panel_port)"
+  port="${port:-18080}"
+  a_user="$(env_get ADMIN_USER)"
+  a_pass="$(env_get ADMIN_PASS)"
+  s_creds="$(socks_creds)"
+  s_user="${s_creds%%:*}"
+  s_pass="${s_creds#*CL:}"
+
+  echo "============================================================"
+  echo " 状态"
+  echo "============================================================"
+  for s in 3proxy 3proxy-dashboard; do
     if systemctl is-active --quiet "$s" 2>/dev/null; then
       ok "$s: 运行中"
     else
-      warn "$s: 未运行"
+      err "$s: 未运行"
     fi
   done
-  local socks_port port app_hash
-  socks_port="$(grep -oP 'socks\s+-p\K[0-9]+' /etc/3proxy/3proxy.cfg 2>/dev/null | head -n 1 || true)"
-  port="$(panel_port)"
-  port="${port:-18080}"
-  app_hash="$(sha256sum /opt/3proxy-dashboard/app.py 2>/dev/null | cut -c1-12 || true)"
-  echo "SOCKS5 端口: ${socks_port:-1234}  面板端口: ${port}（仅本机，需反代）"
-  echo "面板哈希: ${app_hash:-未安装}（对照仓库 SHA256SUMS 确认版本）"
-  if [[ -f /etc/3proxy-dashboard.env ]]; then
-    echo "----- 面板账号（/etc/3proxy-dashboard.env） -----"
-    grep -E '^ADMIN_(USER|PASS)=' /etc/3proxy-dashboard.env || true
+  echo
+  if [[ -n "$domain" ]]; then
+    echo "面板地址：https://${domain}/"
+  else
+    echo "面板地址：http://127.0.0.1:${port}/（仅本机，外网执行 3p caddy 开通）"
   fi
-  local public_ip
-  public_ip="$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo "服务器IP")"
-  echo "地址: ${public_ip}"
-  echo "面板: http://${public_ip}:${port}/ （若已配置反代则走 https 域名）"
+  if [[ -n "$a_user" ]]; then
+    echo "面板账号：${a_user}"
+    echo "面板密码：${a_pass}"
+  fi
+  if [[ -n "$s_user" && "$s_user" != "__no_active_users__" ]]; then
+    echo
+    echo "SOCKS5：$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo 服务器IP):${s_port}"
+    echo "用户名：${s_user}"
+    echo "密码：  ${s_pass}"
+  fi
+  echo
+  echo "云控制台防火墙请放行：TCP 80、TCP 443、TCP ${s_port}"
+  echo "============================================================"
 }
 
 menu() {
-  echo -e "${CYAN}"
-  echo "========================================"
-  echo "   3proxy 管理菜单（命令：3p）"
-  echo "========================================"
-  echo -e "${NC}"
+  print_banner
   echo " 1. 一键安装（3proxy + 管理面板）"
   echo " 2. 仅安装 3proxy（SOCKS5）"
   echo " 3. 仅安装管理面板"
@@ -284,8 +394,8 @@ menu() {
   read -r -p "请选择 [0-9]: " opt || opt=0
   case "$opt" in
     1) do_install ;;
-    2) prepare_package; bash "$PKG_DIR/install/install-3proxy.sh"; install_cli ;;
-    3) prepare_package; bash "$PKG_DIR/install/install-dashboard.sh"; install_cli ;;
+    2) prepare_package; bash "$PKG_DIR/install/install-3proxy.sh"; install_cli; print_summary socks ;;
+    3) prepare_package; bash "$PKG_DIR/install/install-dashboard.sh"; install_cli; print_summary panel ;;
     4) do_update ;;
     5) do_caddy ;;
     6) do_cert ;;

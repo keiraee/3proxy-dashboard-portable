@@ -20,7 +20,7 @@ if [[ ! -f "$PKG_DIR/app/app.py" ]]; then
   exit 1
 fi
 
-echo "===== 安装 3proxy Dashboard（可移植包） ====="
+echo "===== 安装 3proxy 管理面板 ====="
 
 # -o DPkg::Lock::Timeout：等 unattended-upgrades 等进程放锁，避免安装被系统自动更新打断
 apt-get -o DPkg::Lock::Timeout=300 update -qq || true
@@ -54,9 +54,7 @@ CSRF_TOKEN=${CSRF_TOKEN}
 TZ_NAME=Asia/Shanghai
 EOF
   chmod 600 "$ENV_FILE"
-  echo "已生成管理密码，请记好："
-  echo "  用户: admin"
-  echo "  密码: ${ADMIN_PASS}"
+  echo "已生成 $ENV_FILE（账号密码见安装结束输出，或 3p status）"
 else
   echo "保留已有 $ENV_FILE"
 fi
@@ -73,10 +71,7 @@ systemctl restart 3proxy-dashboard
 
 sleep 1
 if systemctl is-active --quiet 3proxy-dashboard; then
-  echo "===== 完成 ====="
-  echo "本地访问: http://127.0.0.1:${DASH_PORT}/"
-  echo "面板账号密码在 $ENV_FILE"
-  echo "如需外网，请用 Caddy 反代 127.0.0.1:${DASH_PORT}（菜单选项 4 一键追加）"
+  echo "面板运行正常（本机端口 ${DASH_PORT}）"
 else
   echo "启动失败，查看日志："
   journalctl -u 3proxy-dashboard -n 50 --no-pager
