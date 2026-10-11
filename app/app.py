@@ -38,433 +38,131 @@ parse_lock = threading.Lock()
 
 BASE_STYLE = """
 <style>
-:root {
-    --black: #111111;
-    --graphite: #303236;
-    --silver: #a8aaad;
-    --silver-light: #e7e8e9;
-    --surface: #ffffff;
-    --muted: #72757a;
-    --success: #177245;
-    --danger: #a52525;
-    --warning: #8a6812;
+:root{
+  --bg:#ffffff;--surface:#ffffff;--surface-2:#f5f5f4;--surface-3:#e9e9e7;
+  --line:#e4e4e1;--text:#111111;--muted:#5c5c59;--faint:#8c8c88;
+  --accent:#2a78d6;--bad:#d9463f;
+  --radius:6px;
+  --font:Inter,-apple-system,"Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --shadow:0 8px 24px rgba(17,17,17,.08);
+  color-scheme:light;
+  font-family:var(--font);font-size:13.5px;line-height:1.45;
+  color:var(--text);background:var(--bg);
 }
-
-* {
-    box-sizing: border-box;
+html[data-theme="dark"]{
+  --bg:#111111;--surface:#161616;--surface-2:#1e1e1e;--surface-3:#2a2a2a;
+  --line:#2a2a29;--text:#ececea;--muted:#a3a3a0;--faint:#6f6f6c;
+  --accent:#3987e5;--bad:#d9463f;
+  --shadow:0 12px 32px rgba(0,0,0,.45);
+  color-scheme:dark;
 }
-
-html, body {
-    margin: 0;
-    min-height: 100%;
-    background: #ffffff;
-    color: var(--black);
-    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-}
-
-body {
-    padding: 38px;
-}
-
-.shell {
-    width: min(1320px, 100%);
-    margin: 0 auto;
-}
-
-.topbar {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 24px;
-    padding: 8px 0 25px;
-    border-bottom: 1px solid #d9dadd;
-    margin-bottom: 28px;
-}
-
-.eyebrow {
-    color: #73767a;
-    font-size: 11px;
-    letter-spacing: .24em;
-    text-transform: uppercase;
-    margin-bottom: 9px;
-}
-
-h1 {
-    margin: 0;
-    font-size: clamp(29px, 4vw, 46px);
-    line-height: 1;
-    font-weight: 300;
-    letter-spacing: -.035em;
-}
-
-.subtitle {
-    margin-top: 12px;
-    color: var(--muted);
-    font-size: 14px;
-}
-
-.top-meta {
-    text-align: right;
-    color: var(--muted);
-    font-size: 12px;
-    line-height: 1.7;
-}
-
-.nav {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 28px;
-}
-
-.nav a {
-    color: var(--graphite);
-    text-decoration: none;
-    font-size: 13px;
-    padding: 9px 15px;
-    border: 1px solid #d9dadd;
-    border-radius: 999px;
-    background: #fff;
-    transition: .18s ease;
-}
-
-.nav a:hover {
-    border-color: #8b8e92;
-    transform: translateY(-1px);
-}
-
-.metrics {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 15px;
-    margin-bottom: 28px;
-}
-
-.metric {
-    position: relative;
-    overflow: hidden;
-    background: #fff;
-    border: 1px solid #e1e2e4;
-    border-radius: 18px;
-    padding: 22px;
-    min-height: 132px;
-    box-shadow: 0 14px 34px rgba(17, 17, 17, .055);
-}
-
-.metric::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 22px;
-    right: 22px;
-    height: 2px;
-    background: linear-gradient(90deg, #34363a, #d4d5d7, #7e8185);
-}
-
-.metric-label {
-    margin-top: 7px;
-    color: var(--muted);
-    font-size: 11px;
-    letter-spacing: .13em;
-    text-transform: uppercase;
-}
-
-.metric-value {
-    margin-top: 24px;
-    font-size: 30px;
-    font-weight: 300;
-    letter-spacing: -.035em;
-}
-
-.panel {
-    background: #fff;
-    border: 1px solid #dedfe1;
-    border-radius: 20px;
-    box-shadow: 0 16px 42px rgba(17, 17, 17, .055);
-    overflow: hidden;
-    margin-bottom: 26px;
-}
-
-.panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    padding: 22px 24px;
-    border-bottom: 1px solid #e5e6e7;
-}
-
-.panel-title {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 500;
-}
-
-.panel-note {
-    color: var(--muted);
-    font-size: 12px;
-}
-
-.table-wrap {
-    overflow-x: auto;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-th {
-    padding: 14px 18px;
-    text-align: left;
-    background: #fafafa;
-    border-bottom: 1px solid #e3e4e5;
-    color: #74777b;
-    font-size: 10px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-
-td {
-    padding: 17px 18px;
-    border-bottom: 1px solid #ededee;
-    vertical-align: middle;
-    font-size: 13px;
-    white-space: nowrap;
-}
-
-tr:last-child td {
-    border-bottom: none;
-}
-
-.username {
-    color: #111;
-    font-size: 15px;
-    font-weight: 500;
-    text-decoration: none;
-}
-
-.username:hover {
-    text-decoration: underline;
-}
-
-.secondary {
-    color: var(--muted);
-    font-size: 11px;
-    margin-top: 5px;
-}
-
-.status {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    border-radius: 999px;
-    padding: 7px 10px;
-    font-size: 11px;
-    border: 1px solid #dfe1e2;
-}
-
-.dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #92959a;
-}
-
-.status.online .dot {
-    background: var(--success);
-    box-shadow: 0 0 0 4px rgba(23, 114, 69, .10);
-}
-
-.status.disabled {
-    color: var(--danger);
-}
-
-.status.disabled .dot {
-    background: var(--danger);
-}
-
-.actions {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-}
-
-button, .button {
-    appearance: none;
-    border: 1px solid #cfd1d3;
-    background: #fff;
-    color: #1d1f21;
-    border-radius: 9px;
-    padding: 8px 11px;
-    cursor: pointer;
-    font: inherit;
-    font-size: 11px;
-    text-decoration: none;
-    transition: .18s ease;
-}
-
-button:hover, .button:hover {
-    border-color: #707378;
-    transform: translateY(-1px);
-}
-
-.button-dark {
-    color: #fff;
-    background: #151617;
-    border-color: #151617;
-}
-
-.button-danger {
-    color: var(--danger);
-}
-
-.form-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr auto;
-    gap: 12px;
-    align-items: end;
-}
-
-.field label {
-    display: block;
-    margin-bottom: 7px;
-    color: #72757a;
-    font-size: 10px;
-    letter-spacing: .11em;
-    text-transform: uppercase;
-}
-
-input {
-    width: 100%;
-    height: 42px;
-    border: 1px solid #d5d7d8;
-    border-radius: 9px;
-    background: #fff;
-    padding: 0 12px;
-    color: #171819;
-    outline: none;
-    font: inherit;
-}
-
-input:focus {
-    border-color: #54575b;
-    box-shadow: 0 0 0 3px rgba(50, 52, 54, .07);
-}
-
-.form-body {
-    padding: 22px 24px;
-}
-
-.flash {
-    margin-bottom: 18px;
-    border: 1px solid #dadbdd;
-    border-left: 3px solid #34363a;
-    background: #fff;
-    border-radius: 10px;
-    padding: 12px 14px;
-    font-size: 13px;
-}
-
-.flash.error {
-    border-left-color: var(--danger);
-    color: var(--danger);
-}
-
-.empty {
-    padding: 48px 24px;
-    text-align: center;
-    color: var(--muted);
-}
-
-.detail-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 18px;
-}
-
-.daily-row {
-    display: grid;
-    grid-template-columns: 105px 1fr 95px;
-    gap: 14px;
-    align-items: center;
-    padding: 10px 0;
-    border-bottom: 1px solid #ededee;
-}
-
-.daily-row:last-child {
-    border-bottom: 0;
-}
-
-.bar-track {
-    height: 7px;
-    background: #eff0f1;
-    border-radius: 99px;
-    overflow: hidden;
-}
-
-.bar {
-    height: 100%;
-    min-width: 2px;
-    background: linear-gradient(90deg, #1b1c1e, #9b9da0);
-    border-radius: 99px;
-}
-
-footer {
-    padding: 10px 2px 4px;
-    color: #8a8d91;
-    font-size: 11px;
-    text-align: center;
-}
-
-@media (max-width: 920px) {
-    body {
-        padding: 22px 14px;
-    }
-
-    .metrics {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .topbar {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    .top-meta {
-        text-align: left;
-    }
-
-    .form-grid,
-    .detail-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media (max-width: 540px) {
-    .metrics {
-        grid-template-columns: 1fr;
-    }
-}
+*{box-sizing:border-box}html,body{margin:0;min-height:100vh;background:var(--bg);color:var(--text)}
+a{color:inherit}button,input{font:inherit;color:inherit}
+.mono,.metric .value,th,td.num,.user-name,.daily-row .amt{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.shell{min-height:100vh;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;height:48px;
+  padding:0 20px;background:var(--bg);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+.nav-left,.nav-right{display:flex;align-items:center;gap:14px;min-width:0}
+.nav-right{flex-shrink:0}
+.brand{font-size:13px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+.nav-status{font-size:12px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:min(42vw,520px);font-family:var(--mono)}
+.icon-btn{width:28px;height:28px;border:1px solid var(--line);border-radius:4px;background:var(--surface);
+  color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}
+.icon-btn:hover{background:var(--surface-2);color:var(--text)}
+.ico{width:16px;height:16px;display:block;flex-shrink:0}
+.btn{border:1px solid var(--line);border-radius:4px;background:var(--surface);color:inherit;
+  padding:5px 10px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;line-height:1.3}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--text);color:var(--bg);border-color:var(--text)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.bad{color:var(--bad)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--surface-2)}
+.main{flex:1;padding:20px;max-width:1440px;width:100%;margin:0 auto}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.metric{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px}
+.metric .label{font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px}
+.metric .value{font-size:20px;font-weight:700;margin-top:6px}
+.metric .extra{font-size:12px;color:var(--faint);margin-top:4px}
+.section{margin-top:18px}
+.section-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px}
+.section-h h2{margin:0;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px}
+.hint{font-size:12px;color:var(--muted);margin:2px 0 0}
+.table-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+th{font-size:11.5px;color:var(--faint);font-weight:600;background:var(--surface)}
+td.num{text-align:right}
+tr:last-child td{border-bottom:0}
+tr:hover td{background:var(--surface-2)}
+tr.disabled td{opacity:.55}
+.user-name{font-weight:650;text-decoration:none}
+.user-name:hover{text-decoration:underline}
+.user-note{color:var(--muted);font-size:12px;margin-top:2px}
+.status-dot{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.status-dot::before{content:"";width:7px;height:7px;border-radius:99px;background:currentColor;display:block}
+.status-dot.on{color:var(--accent)}.status-dot.off{color:var(--faint)}.status-dot.ban{color:var(--bad)}
+.ops{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.ops .btn{padding:4px 9px;font-size:12px}
+.empty{padding:22px 12px;text-align:center;color:var(--faint);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.flash{margin:0 0 14px;padding:10px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--line)}
+.flash.success{background:var(--surface-2);color:var(--muted)}
+.flash.error{background:var(--surface);color:var(--bad);border-color:var(--bad)}
+.form-body{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field label{font-size:12px;color:var(--faint);font-weight:650}
+.input{border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%;background:var(--surface);font-family:var(--mono);font-size:13px}
+.input:focus{outline:none;border-color:var(--text)}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.daily-row{display:grid;grid-template-columns:96px minmax(0,1fr) 92px;gap:10px;align-items:center;font-size:12px;padding:4px 0}
+.daily-row .amt{text-align:right}
+.bar-track{height:4px;background:var(--surface-3);border-radius:2px;overflow:hidden}
+.bar-track i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.footer{margin-top:18px;font-size:12px;color:var(--faint)}
+svg.sprite{position:absolute;overflow:hidden;width:0;height:0}
+@media(max-width:1100px){.metrics{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:900px){.nav-status{display:none}.detail-grid{grid-template-columns:1fr}}
+@media(max-width:720px){.form-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.metrics{grid-template-columns:1fr}.main{padding:14px}.topbar{padding:0 12px}}
 </style>
+<script>
+try{var t=localStorage.getItem("3p-panel-theme");
+if(t==="dark"||t==="light"){document.documentElement.setAttribute("data-theme",t);}
+else if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches){document.documentElement.setAttribute("data-theme","dark");}}catch(e){}
+function toggleTheme(){
+  var next=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
+  document.documentElement.setAttribute("data-theme",next);
+  try{localStorage.setItem("3p-panel-theme",next)}catch(e){}
+  var u=document.querySelector("#themeBtn use");
+  if(u){u.setAttribute("href",next==="dark"?"#i-sun":"#i-moon");}
+}
+</script>
 """
 
 HEADER = """
-<div class="topbar">
-    <div>
-        <div class="eyebrow">私人网络控制台</div>
-        <h1>3proxy 管理面板</h1>
-        <div class="subtitle">流量统计、用户管理与连接状态一体化控制台。</div>
-    </div>
-    <div class="top-meta">
-        SOCKS5 · TCP 1234<br>
-        时区 · {{ timezone }}
-    </div>
-</div>
-
-<div class="nav">
-    <a href="{{ url_for('index') }}">总览</a>
-</div>
+<svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M22 12h-4l-3 7L9 5l-3 7H2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></symbol>
+</svg>
+<header class="topbar">
+  <div class="nav-left">
+    <div class="brand">3proxy Panel</div>
+  </div>
+  <div class="nav-right">
+    <div class="nav-status">SOCKS5 代理 · 时区 {{ timezone }}</div>
+    <button id="themeBtn" class="icon-btn" type="button" aria-label="切换主题" title="主题" onclick="toggleTheme()">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-moon"/></svg>
+    </button>
+    <a class="btn primary" href="{{ url_for('index') }}">总览</a>
+  </div>
+</header>
 """
 
 
@@ -908,17 +606,18 @@ def index():
 
     template = """
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
 <title>3proxy 管理面板</title>
 """ + BASE_STYLE + """
 </head>
 <body>
 <div class="shell">
 """ + HEADER + """
-
+<main class="main">
 {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
         <div class="flash {{ category }}">{{ message }}</div>
@@ -927,33 +626,34 @@ def index():
 
 <div class="metrics">
     <div class="metric">
-        <div class="metric-label">用户总数</div>
-        <div class="metric-value">{{ rows|length }}</div>
+        <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-users"/></svg>用户总数</div>
+        <div class="value">{{ rows|length }}</div>
+        <div class="extra">已启用 {{ enabled_count }}</div>
     </div>
     <div class="metric">
-        <div class="metric-label">当前在线</div>
-        <div class="metric-value">{{ online_count }}</div>
+        <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-activity"/></svg>当前在线</div>
+        <div class="value">{{ online_count }}</div>
+        <div class="extra">最近 3 分钟有活动</div>
     </div>
     <div class="metric">
-        <div class="metric-label">今日流量</div>
-        <div class="metric-value">{{ total_today|bytes }}</div>
+        <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg>今日流量</div>
+        <div class="value">{{ total_today|bytes }}</div>
+        <div class="extra">下载 + 上传合计</div>
     </div>
     <div class="metric">
-        <div class="metric-label">本月流量</div>
-        <div class="metric-value">{{ total_month|bytes }}</div>
+        <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-server"/></svg>本月流量</div>
+        <div class="value">{{ total_month|bytes }}</div>
+        <div class="extra">时区 {{ timezone }}</div>
     </div>
 </div>
 
-<div class="panel">
-    <div class="panel-head">
+<section class="section">
+    <div class="section-h">
         <div>
-            <h2 class="panel-title">用户列表</h2>
-            <div class="panel-note">
-                在线状态根据最近 3 分钟内的连接活动判断。
-            </div>
+            <h2><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-users"/></svg>用户列表</h2>
+            <p class="hint">在线状态根据最近 3 分钟内的连接活动判断；点击用户名查看明细。</p>
         </div>
     </div>
-
     {% if rows %}
     <div class="table-wrap">
         <table>
@@ -965,97 +665,47 @@ def index():
                 <th>本月</th>
                 <th>累计下载 / 上传</th>
                 <th>最近 IP</th>
-                <th>近 24 小时 IP 数</th>
-                <th>操作</th>
+                <th>24h IP</th>
+                <th style="text-align:right">操作</th>
             </tr>
             </thead>
             <tbody>
             {% for row in rows %}
-            <tr>
+            <tr class="{{ 'disabled' if not row.enabled else '' }}">
                 <td>
-                    <a class="username"
-                       href="{{ url_for('user_detail', username=row.username) }}">
-                        {{ row.username }}
-                    </a>
-                    <div class="secondary">
-                        最近目标 · {{ row.last_target }}
-                    </div>
+                    <a class="user-name" href="{{ url_for('user_detail', username=row.username) }}">{{ row.username }}</a>
+                    <div class="user-note">最近目标 · {{ row.last_target }}</div>
                 </td>
                 <td>
                     {% if not row.enabled %}
-                        <span class="status disabled">
-                            <span class="dot"></span>已禁用
-                        </span>
+                        <span class="status-dot ban">已禁用</span>
                     {% elif row.online %}
-                        <span class="status online">
-                            <span class="dot"></span>在线
-                        </span>
+                        <span class="status-dot on">在线</span>
                     {% else %}
-                        <span class="status">
-                            <span class="dot"></span>离线
-                        </span>
+                        <span class="status-dot off">离线</span>
                     {% endif %}
                 </td>
-                <td>{{ row.today_total|bytes }}</td>
-                <td>{{ row.month_total|bytes }}</td>
-                <td>
+                <td class="num">{{ row.today_total|bytes }}</td>
+                <td class="num">{{ row.month_total|bytes }}</td>
+                <td class="num">
                     ↓ {{ row.total_download|bytes }}
-                    <div class="secondary">↑ {{ row.total_upload|bytes }}</div>
+                    <div class="user-note">↑ {{ row.total_upload|bytes }}</div>
                 </td>
-                <td>{{ row.last_ip }}</td>
-                <td>{{ row.ip_count }}</td>
+                <td class="mono">{{ row.last_ip }}</td>
+                <td class="num">{{ row.ip_count }}</td>
                 <td>
-                    <div class="actions">
-                        <form method="post"
-                              action="{{ url_for('toggle_user', username=row.username) }}">
-                            <input type="hidden"
-                                   name="csrf_token"
-                                   value="{{ csrf_token }}">
-                            <button type="submit">
-                                {{ "启用" if not row.enabled else "禁用" }}
-                            </button>
+                    <div class="ops">
+                        <form method="post" action="{{ url_for('toggle_user', username=row.username) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="btn" type="submit">{{ "启用" if not row.enabled else "禁用" }}</button>
                         </form>
-
-                        <a class="button"
-                           href="{{ url_for('user_detail', username=row.username) }}">
-                            Details
-                        </a>
-
-                        <form method="post"
-                              action="{{ url_for('delete_user', username=row.username) }}"
+                        <a class="btn ghost" href="{{ url_for('user_detail', username=row.username) }}">详情</a>
+                        <form method="post" action="{{ url_for('delete_user', username=row.username) }}" style="display:inline"
                               onsubmit="return confirm('确定永久删除该用户吗？')">
-                            <input type="hidden"
-                                   name="csrf_token"
-                                   value="{{ csrf_token }}">
-                            <button class="button-danger" type="submit">
-                                Delete
-                            </button>
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="btn bad" type="submit">删除</button>
                         </form>
                     </div>
-                </td>
-            </tr>
-
-            <tr>
-                <td colspan="8" style="padding-top:0;background:#fcfcfc;">
-                    <form class="form-grid"
-                          method="post"
-                          action="{{ url_for('change_password', username=row.username) }}">
-                        <input type="hidden"
-                               name="csrf_token"
-                               value="{{ csrf_token }}">
-                        <div class="field">
-                            <label>{{ row.username }} 的新密码</label>
-                            <input name="password"
-                                   type="password"
-                                   minlength="4"
-                                   maxlength="64"
-                                   autocomplete="new-password"
-                                   placeholder="输入新密码"
-                                   required>
-                        </div>
-                        <div></div>
-                        <button type="submit">修改密码</button>
-                    </form>
                 </td>
             </tr>
             {% endfor %}
@@ -1065,56 +715,35 @@ def index():
     {% else %}
         <div class="empty">暂未配置任何用户。</div>
     {% endif %}
-</div>
+</section>
 
-<div class="panel">
-    <div class="panel-head">
+<section class="section" id="add-user">
+    <div class="section-h">
         <div>
-            <h2 class="panel-title">新增用户</h2>
-            <div class="panel-note">
-                创建后将立即写入 3proxy 配置并生效。
-            </div>
+            <h2>新增用户</h2>
+            <p class="hint">创建后将立即写入 3proxy 配置并生效。</p>
         </div>
     </div>
-
     <div class="form-body">
-        <form class="form-grid"
-              method="post"
-              action="{{ url_for('add_user') }}">
-            <input type="hidden"
-                   name="csrf_token"
-                   value="{{ csrf_token }}">
-
+        <form class="form-grid" method="post" action="{{ url_for('add_user') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="field">
                 <label>用户名</label>
-                <input name="username"
-                       maxlength="32"
-                       pattern="[A-Za-z0-9_.-]+"
-                       placeholder="请输入用户名"
-                       required>
+                <input class="input" name="username" maxlength="32" pattern="[A-Za-z0-9_.-]+"
+                       placeholder="字母/数字/._-" required>
             </div>
-
             <div class="field">
                 <label>密码</label>
-                <input name="password"
-                       type="password"
-                       minlength="4"
-                       maxlength="64"
-                       autocomplete="new-password"
-                       placeholder="请输入密码"
-                       required>
+                <input class="input" name="password" type="password" minlength="4" maxlength="64"
+                       autocomplete="new-password" placeholder="至少 4 位" required>
             </div>
-
-            <button class="button-dark" type="submit">
-                创建用户
-            </button>
+            <button class="btn primary" type="submit">创建用户</button>
         </form>
     </div>
-</div>
+</section>
 
-<footer>
-    纯白界面 · 无 Logo · 私人管理
-</footer>
+<footer class="footer">3proxy Panel · 私人管理</footer>
+</main>
 </div>
 </body>
 </html>
@@ -1124,6 +753,7 @@ def index():
         template,
         rows=rows,
         online_count=online_count,
+        enabled_count=sum(1 for row in rows if row["enabled"]),
         total_today=total_today,
         total_month=total_month,
         csrf_token=CSRF_TOKEN,
@@ -1381,53 +1011,51 @@ def user_detail(username):
 
     template = """
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
 <title>{{ username }} · 3proxy 管理面板</title>
 """ + BASE_STYLE + """
 </head>
 <body>
 <div class="shell">
 """ + HEADER + """
+<main class="main">
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+{% endwith %}
 
 <div class="detail-grid">
-    <div class="panel">
-        <div class="panel-head">
+    <section class="section" style="margin-top:0">
+        <div class="section-h">
             <div>
-                <h2 class="panel-title">{{ username }} · 近 30 天流量</h2>
-                <div class="panel-note">
-                    下载与上传流量合计。
-                </div>
+                <h2><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg>{{ username }} · 近 30 天流量</h2>
+                <p class="hint">下载与上传流量合计。</p>
             </div>
+            <a class="btn ghost" href="{{ url_for('index') }}">← 返回总览</a>
         </div>
         <div class="form-body">
             {% for day in days %}
             <div class="daily-row">
                 <div>{{ day.date }}</div>
-                <div class="bar-track">
-                    <div class="bar"
-                         style="width:{{ day.percent }}%"></div>
-                </div>
-                <div style="text-align:right">
-                    {{ day.value|bytes }}
-                </div>
+                <div class="bar-track"><i style="width:{{ day.percent }}%"></i></div>
+                <div class="amt">{{ day.value|bytes }}</div>
             </div>
             {% endfor %}
         </div>
-    </div>
+    </section>
 
-    <div class="panel">
-        <div class="panel-head">
+    <section class="section" style="margin-top:0">
+        <div class="section-h">
             <div>
-                <h2 class="panel-title">最近连接</h2>
-                <div class="panel-note">
-                    最近 30 条已完成的代理连接。
-                </div>
+                <h2>最近连接</h2>
+                <p class="hint">最近 30 条已完成的代理连接。</p>
             </div>
         </div>
-
         {% if recent %}
         <div class="table-wrap">
             <table>
@@ -1442,14 +1070,12 @@ def user_detail(username):
                 <tbody>
                 {% for item in recent %}
                 <tr>
-                    <td>{{ item.time }}</td>
-                    <td>{{ item.ip }}</td>
-                    <td>{{ item.target }}</td>
-                    <td>
+                    <td class="mono">{{ item.time }}</td>
+                    <td class="mono">{{ item.ip }}</td>
+                    <td class="mono">{{ item.target }}</td>
+                    <td class="num">
                         ↓ {{ item.download|bytes }}
-                        <div class="secondary">
-                            ↑ {{ item.upload|bytes }}
-                        </div>
+                        <div class="user-note">↑ {{ item.upload|bytes }}</div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -1459,12 +1085,32 @@ def user_detail(username):
         {% else %}
             <div class="empty">暂无流量记录。</div>
         {% endif %}
-    </div>
+    </section>
 </div>
 
-<footer>
-    纯白界面 · 无 Logo · 私人管理
-</footer>
+<section class="section">
+    <div class="section-h">
+        <div>
+            <h2>修改 {{ username }} 的密码</h2>
+            <p class="hint">保存后立即写入 3proxy 配置并生效。</p>
+        </div>
+    </div>
+    <div class="form-body">
+        <form class="form-grid" method="post" action="{{ url_for('change_password', username=username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="field">
+                <label>新密码</label>
+                <input class="input" name="password" type="password" minlength="4" maxlength="64"
+                       autocomplete="new-password" placeholder="至少 4 位" required>
+            </div>
+            <div></div>
+            <button class="btn primary" type="submit">保存密码</button>
+        </form>
+    </div>
+</section>
+
+<footer class="footer">3proxy Panel · 私人管理</footer>
+</main>
 </div>
 </body>
 </html>
@@ -1475,6 +1121,7 @@ def user_detail(username):
         username=username,
         days=days,
         recent=recent,
+        csrf_token=CSRF_TOKEN,
         timezone=TZ_NAME,
     )
 

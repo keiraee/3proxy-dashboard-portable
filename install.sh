@@ -83,6 +83,30 @@ do_restart() {
   ok "已重启 3proxy 与管理面板"
 }
 
+show_ports() {
+  local socks_port
+  socks_port="$(grep -oP 'socks\s+-p\K[0-9]+' /etc/3proxy/3proxy.cfg 2>/dev/null | head -n 1)"
+  socks_port="${socks_port:-1234}"
+  echo -e "${CYAN}----- 需放行端口（本机防火墙 + 云服务商安全组） -----${NC}"
+  echo "  TCP 80, 443    —— HTTPS 面板与证书申请（Caddy）"
+  echo "  TCP ${socks_port}       —— SOCKS5 代理"
+  echo "云服务商安全组/防火墙（AWS Lightsail、阿里云、腾讯云等）请到控制台放行上述端口"
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    ufw allow 80/tcp >/dev/null 2>&1
+    ufw allow 443/tcp >/dev/null 2>&1
+    ufw allow "${socks_port}/tcp" >/dev/null 2>&1
+    ok "本机 ufw 已自动放行 80/443/${socks_port}（云安全组仍需控制台操作）"
+  elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
+    firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
+    firewall-cmd --permanent --add-port="${socks_port}/tcp" >/dev/null 2>&1
+    firewall-cmd --reload >/dev/null 2>&1
+    ok "本机 firewalld 已自动放行 80/443/${socks_port}（云安全组仍需控制台操作）"
+  else
+    warn "未检测到启用中的本机防火墙（ufw/firewalld），只差云安全组一步"
+  fi
+}
+
 do_install() {
   prepare_package
   echo -e "${CYAN}===== 一键安装 3proxy + 管理面板 =====${NC}"
@@ -91,6 +115,17 @@ do_install() {
   bash "$PKG_DIR/install/install-dashboard.sh"
   echo
   install_cli
+  echo
+  # 安装完成直接配置 HTTPS（默认 Y，无人值守时用默认域名自动继续）
+  local caddy_ans=""
+  read -r -p "是否配置 Caddy 反代并申请 HTTPS 证书? [Y/n]: " caddy_ans || caddy_ans="y"
+  if [[ -z "$caddy_ans" || "$caddy_ans" == [Yy] ]]; then
+    do_caddy
+    echo
+  else
+    warn "跳过 HTTPS 配置（之后可随时执行 3p caddy / 菜单选项 5）"
+  fi
+  show_ports
   echo
   do_status
 }
@@ -133,7 +168,7 @@ do_caddy() {
     public_ip="$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo "")"
     default_domain="3proxy.${public_ip//./-}.sslip.io"
     [[ -z "$public_ip" ]] && default_domain=""
-    read -r -p "面板域名 [${default_domain}]: " domain
+    read -r -p "面板域名 [${default_domain}]: " domain || true
     domain="${domain:-$default_domain}"
     if [[ -z "$domain" ]]; then
       err "未输入域名"
