@@ -344,6 +344,13 @@ do_caddy() {
   # 只往 Caddyfile 末尾追加 3proxy. 子域站点，绝不改动已有项目配置
   # $1=auto：无人值守模式，默认域名直接配置，不询问
   local mode="${1:-}"
+
+  # 先确认面板已安装，否则不必白装一遍 Caddy
+  if [[ ! -f /etc/systemd/system/3proxy-dashboard.service ]]; then
+    err "面板尚未安装，请先执行安装（选项 1 或 3）"
+    exit 1
+  fi
+
   if ! command -v caddy >/dev/null 2>&1; then
     warn "未检测到 Caddy，正在安装..."
     apt-get -o DPkg::Lock::Timeout=300 update -qq || true
@@ -354,10 +361,6 @@ do_caddy() {
   local port
   port="$(panel_port)"
   port="${port:-18080}"
-  if [[ ! -f /etc/systemd/system/3proxy-dashboard.service ]]; then
-    err "面板尚未安装，请先执行安装（选项 1 或 3）"
-    exit 1
-  fi
 
   if grep -qF "$CADDY_MARK" "$CADDYFILE" 2>/dev/null; then
     warn "Caddyfile 已包含 3proxy 配置，跳过追加"
