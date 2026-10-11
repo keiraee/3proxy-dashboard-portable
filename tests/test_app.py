@@ -193,7 +193,8 @@ class TestPagesSmoke(AppTestCase):
         self.seed_user_and_traffic()
         client = self.mod.app.test_client()
         for path in ("/", "/logs", "/users/alice", "/export.csv",
-                     "/users/alice/export.csv", "/logs/download", "/users/alice/proxy"):
+                     "/users/alice/export.csv", "/logs/download", "/users/alice/proxy",
+                     "/users/alice/password"):
             with self.subTest(path=path):
                 self.assertEqual(200, client.get(path, headers=self.auth).status_code)
 
@@ -213,6 +214,20 @@ class TestPagesSmoke(AppTestCase):
         body = client.get("/users/alice/proxy",
                           headers=dict(self.auth, Host="127.0.0.1:18080")).data.decode()
         self.assertEqual("socks5://alice:pw@127.0.0.1:1234", body)
+
+    def test_copy_password_and_copy_ip(self):
+        """复制密码走 GET 接口取明文（密码不渲染进页面）；复制 IP 按 Host 头取主机名。"""
+        self.seed_user_and_traffic()
+        client = self.mod.app.test_client()
+        self.assertEqual("pw",
+                         client.get("/users/alice/password", headers=self.auth).data.decode())
+        self.assertEqual(404,
+                         client.get("/users/nobody/password", headers=self.auth).status_code)
+        body = client.get("/", headers=dict(self.auth, Host="[::1]:18080")).data.decode()
+        self.assertIn('data-ip="::1"', body)
+        self.assertIn("复制用户名", body)
+        self.assertIn("copyPassword(this.dataset.username)", body)
+        self.assertNotIn("data-password", body)
 
     def test_csv_export_content(self):
         ts = self.seed_user_and_traffic()

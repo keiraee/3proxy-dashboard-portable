@@ -279,6 +279,12 @@ function copyProxy(name){
     .then(function(t){copyText(t,"已复制代理连接");})
     .catch(function(){toast("获取代理连接失败");});
 }
+function copyPassword(name){
+  fetch("/users/"+encodeURIComponent(name)+"/password",{credentials:"same-origin"})
+    .then(function(r){if(!r.ok)throw new Error("bad");return r.text();})
+    .then(function(t){copyText(t,"已复制密码");})
+    .catch(function(){toast("获取密码失败");});
+}
 function closeMenus(){
   Array.prototype.forEach.call(document.querySelectorAll(".menu.open"),function(m){m.classList.remove("open");});
   Array.prototype.forEach.call(document.querySelectorAll(".menu-btn.open"),function(b){b.classList.remove("open");});
@@ -326,9 +332,7 @@ HEADER = """
     </button>
     <button class="btn" type="button" onclick="toggleMenu(this,event)">菜单</button>
     <div class="menu">
-      <button type="button" onclick="location.href='{{ url_for('logs_page') }}#activity'">项目动态</button>
-      <button type="button" onclick="location.href='{{ url_for('logs_page') }}#runtime'">运行日志</button>
-      <button type="button" onclick="location.href='{{ url_for('logs_page') }}#traffic'">流量</button>
+      <button type="button" onclick="location.href='{{ url_for('logs_page') }}'">系统日志总览</button>
       <div class="sep"></div>
       <button type="button" onclick="location.href='{{ url_for('logs_download', h=1) }}'">下载连接日志 · 最近 1 小时</button>
       <button type="button" onclick="location.href='{{ url_for('logs_download', h=24) }}'">下载连接日志 · 最近 24 小时</button>
@@ -868,6 +872,8 @@ def redirect_back(fallback="index"):
 def index():
     parse_log_incrementally()
     rows = dashboard_rows()
+    # 复制 IP 用：取主机名（IPv6 不带方括号，便于粘到客户端服务器栏）
+    proxy_host = urlparse("//" + request.host).hostname or request.host
 
     total_today = sum(row["today_total"] for row in rows)
     total_month = sum(row["month_total"] for row in rows)
@@ -923,6 +929,7 @@ def index():
             <p class="hint">在线状态根据最近 3 分钟内的连接活动判断；点击用户名查看流量分析。</p>
         </div>
         <div class="ops-bar">
+            <button class="btn" type="button" data-ip="{{ proxy_host|e }}" onclick="copyText(this.dataset.ip,'已复制 IP')">复制 IP</button>
             <button class="btn primary" type="button" onclick="openModal('addModal')">+ 新增用户</button>
         </div>
     </div>
@@ -970,6 +977,8 @@ def index():
                         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"/></svg>
                     </button>
                     <div class="menu">
+                        <button type="button" data-username="{{ row.username|e }}" onclick="copyText(this.dataset.username,'已复制用户名')">复制用户名</button>
+                        <button type="button" data-username="{{ row.username|e }}" onclick="copyPassword(this.dataset.username)">复制密码</button>
                         <button type="button" onclick="location.href='{{ url_for('user_detail', username=row.username) }}'">查看详情</button>
                         <button type="button" onclick="location.href='{{ url_for('export_user_csv', username=row.username) }}'">导出 CSV</button>
                         <form method="post" action="{{ url_for('toggle_user', username=row.username) }}">
@@ -1033,6 +1042,7 @@ def index():
         enabled_count=sum(1 for row in rows if row["enabled"]),
         total_today=total_today,
         total_month=total_month,
+        proxy_host=proxy_host,
         csrf_token=CSRF_TOKEN,
         timezone=TZ_NAME,
     )
@@ -1313,6 +1323,21 @@ def user_proxy(username):
     if ":" in host:
         host = f"[{host}]"  # IPv6 字面量在 URL 里必须带方括号
     return f"socks5://{auth}@{host}:{socks_port()}"
+
+
+@app.route("/users/<username>/password", methods=["GET"])
+@login_required
+def user_password(username):
+    # 一键复制用：返回明文密码（密码不渲染进页面，由前端按需取）
+    with db_connection() as conn:
+        user = conn.execute(
+            "SELECT password FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+    if not user:
+        abort(404)
+    return user["password"]
 
 
 def export_csv_response(username=None, hours=None):
