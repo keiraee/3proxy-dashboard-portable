@@ -1,4 +1,6 @@
 import hmac
+import csv
+import io
 import os
 import re
 import shlex
@@ -8,7 +10,7 @@ import threading
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 from flask import (
@@ -113,6 +115,17 @@ th.sortable:hover{color:var(--text)}
 th.sortable.active{color:var(--text)}
 th.sortable.active::after{content:attr(data-dir);margin-left:4px;font-size:10px}
 .search{max-width:220px}
+.stack{display:flex;flex-direction:column;gap:8px}
+.modal-scrim{display:none;position:fixed;inset:0;background:rgba(17,17,17,.4);z-index:70;align-items:center;justify-content:center;padding:8px}
+.modal-scrim.open{display:flex}
+html[data-theme="dark"] .modal-scrim{background:rgba(0,0,0,.55)}
+.modal{background:var(--surface);border-radius:var(--radius);border:1px solid var(--line);width:min(400px,100%);padding:16px;box-shadow:var(--shadow)}
+.modal h3{margin:0 0 6px;font-size:14px}
+.modal .hint{margin-bottom:12px}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.toast{position:fixed;right:16px;bottom:16px;background:var(--text);color:var(--bg);padding:10px 14px;
+  border-radius:var(--radius);opacity:0;pointer-events:none;transition:opacity .2s;z-index:100;max-width:320px;font-size:13px}
+.toast.show{opacity:1}
 .empty{padding:22px 12px;text-align:center;color:var(--faint);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
 .flash{margin:0 0 14px;padding:10px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--line)}
 .flash.success{background:var(--surface);color:var(--ok);border-color:var(--ok)}
@@ -215,6 +228,44 @@ function sortUsers(th){
   });
   rows.forEach(function(r){table.tBodies[0].appendChild(r);});
 }
+function openModal(id){
+  var m=document.getElementById(id||"addModal");
+  if(!m)return;
+  m.classList.add("open");
+  var f=m.querySelector("input");
+  if(f)f.focus();
+}
+function closeModal(m){
+  var s=(m&&m.classList&&m.classList.contains("modal-scrim"))?m:document.querySelector(".modal-scrim.open");
+  if(s)s.classList.remove("open");
+}
+document.addEventListener("keydown",function(e){
+  if(e.key==="Escape"){var s=document.querySelector(".modal-scrim.open");if(s)s.classList.remove("open");}
+});
+function toast(msg){
+  var t=document.getElementById("toast");
+  if(!t){t=document.createElement("div");t.id="toast";t.className="toast";document.body.appendChild(t);}
+  t.textContent=msg;t.classList.add("show");
+  clearTimeout(t._h);t._h=setTimeout(function(){t.classList.remove("show");},1800);
+}
+function copyText(text,msg){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){toast(msg||"已复制");},function(){fallbackCopy(text,msg);});
+  }else{fallbackCopy(text,msg);}
+}
+function fallbackCopy(text,msg){
+  var ta=document.createElement("textarea");
+  ta.value=text;ta.style.position="fixed";ta.style.opacity="0";
+  document.body.appendChild(ta);ta.select();
+  try{document.execCommand("copy");toast(msg||"已复制");}catch(e){toast("复制失败");}
+  document.body.removeChild(ta);
+}
+function copyProxy(name){
+  fetch("/users/"+encodeURIComponent(name)+"/proxy",{credentials:"same-origin"})
+    .then(function(r){if(!r.ok)throw new Error("bad");return r.text();})
+    .then(function(t){copyText(t,"已复制代理连接");})
+    .catch(function(){toast("获取代理连接失败");});
+}
 </script>
 """
 
@@ -237,7 +288,6 @@ HEADER = """
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-moon"/></svg>
     </button>
     <a class="btn" href="{{ url_for('index') }}">总览</a>
-    <a class="btn primary" href="{{ url_for('index') }}#add-user">+ 新增用户</a>
   </div>
 </header>
 """
@@ -783,9 +833,13 @@ def index():
             <h2><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-users"/></svg>用户列表</h2>
             <p class="hint">在线状态根据最近 3 分钟内的连接活动判断；点击用户名查看流量分析。</p>
         </div>
-        {% if rows %}
-        <input class="input search" id="userFilter" placeholder="搜索用户名…" oninput="filterUsers()">
-        {% endif %}
+        <div class="ops-bar">
+            {% if rows %}
+            <input class="input search" id="userFilter" placeholder="搜索用户名…" oninput="filterUsers()">
+            {% endif %}
+            <a class="btn ghost" href="{{ url_for('export_csv') }}">导出 CSV</a>
+            <button class="btn primary" type="button" onclick="openModal('addModal')">+ 新增用户</button>
+        </div>
     </div>
     {% if rows %}
     <div class="table-wrap">
@@ -833,6 +887,8 @@ def index():
                             <button class="btn" type="submit">{{ "启用" if not row.enabled else "禁用" }}</button>
                         </form>
                         <a class="btn ghost" href="{{ url_for('user_detail', username=row.username) }}">详情</a>
+                        <button class="btn ghost" type="button" title="复制 socks5 代理连接"
+                                onclick="copyProxy('{{ row.username }}')">复制</button>
                     </div>
                 </td>
             </tr>
@@ -846,15 +902,11 @@ def index():
     <div class="empty" id="filterEmpty" style="display:none">没有匹配的用户。</div>
 </section>
 
-<section class="section" id="add-user">
-    <div class="section-h">
-        <div>
-            <h2>新增用户</h2>
-            <p class="hint">创建后将立即写入 3proxy 配置并生效。</p>
-        </div>
-    </div>
-    <div class="form-body">
-        <form class="form-grid" method="post" action="{{ url_for('add_user') }}">
+<div class="modal-scrim" id="addModal" onclick="if(event.target===this)closeModal(this)">
+    <div class="modal" role="dialog" aria-label="新增用户">
+        <h3>新增用户</h3>
+        <p class="hint">创建后立即写入 3proxy 配置并生效。</p>
+        <form class="stack" method="post" action="{{ url_for('add_user') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="field">
                 <label>用户名</label>
@@ -866,10 +918,13 @@ def index():
                 <input class="input" name="password" type="password" minlength="4" maxlength="64"
                        autocomplete="new-password" placeholder="至少 4 位" required>
             </div>
-            <button class="btn primary" type="submit">创建用户</button>
+            <div class="modal-actions">
+                <button class="btn" type="button" onclick="closeModal()">取消</button>
+                <button class="btn primary" type="submit">创建用户</button>
+            </div>
         </form>
     </div>
-</section>
+</div>
 
 <footer class="footer">3proxy Panel · 私人管理</footer>
 </main>
@@ -1073,6 +1128,106 @@ def delete_user(username):
         flash(f"3proxy 配置更新失败，已回滚到之前状态：{exc}", "error")
 
     return redirect_back()
+
+
+def socks_port():
+    try:
+        text = PROXY_CONFIG.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return "1234"
+
+    match = re.search(r"socks\s+-p(\d+)", text)
+    return match.group(1) if match else "1234"
+
+
+@app.route("/users/<username>/proxy")
+@login_required
+def user_proxy(username):
+    # 一键复制用：返回 socks5://user:pass@host:port 连接串
+    with db_connection() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+    if not user:
+        abort(404)
+
+    auth = quote(username, safe="") + ":" + quote(user["password"], safe="")
+    host = request.host.split(":")[0]
+    return f"socks5://{auth}@{host}:{socks_port()}"
+
+
+def export_csv_response(username=None):
+    parse_log_incrementally()
+
+    query = (
+        "SELECT ts, username, client_ip, target, download, upload, host "
+        "FROM traffic"
+    )
+    params = ()
+
+    if username:
+        query += " WHERE username = ?"
+        params = (username,)
+
+    query += " ORDER BY ts DESC"
+
+    with db_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        ["时间", "用户名", "客户端IP", "目标", "域名", "下载(字节)", "上传(字节)"]
+    )
+
+    for row in rows:
+        writer.writerow(
+            [
+                datetime.fromtimestamp(row["ts"], TZ).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                row["username"],
+                row["client_ip"],
+                row["target"],
+                row["host"] or "",
+                row["download"],
+                row["upload"],
+            ]
+        )
+
+    stamp = datetime.now(TZ).strftime("%Y%m%d")
+    filename = f"3proxy-{username or 'all'}-{stamp}.csv"
+
+    return Response(
+        "﻿" + buffer.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        },
+    )
+
+
+@app.route("/export.csv")
+@login_required
+def export_csv():
+    return export_csv_response(None)
+
+
+@app.route("/users/<username>/export.csv")
+@login_required
+def export_user_csv(username):
+    with db_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+    if not exists:
+        abort(404)
+
+    return export_csv_response(username)
 
 
 @app.route("/users/<username>")
@@ -1447,6 +1602,7 @@ def user_detail(username):
             <h2>最近连接</h2>
             <p class="hint">最近 30 条已完成的代理连接。</p>
         </div>
+        <a class="btn ghost" href="{{ url_for('export_user_csv', username=username) }}">导出 CSV</a>
     </div>
     {% if recent %}
     <div class="table-wrap">
@@ -1489,6 +1645,7 @@ def user_detail(username):
     </div>
     <div class="form-body">
         <div class="ops" style="justify-content:flex-start;margin-bottom:16px">
+            <button class="btn" type="button" onclick="copyProxy('{{ username }}')">复制代理连接</button>
             <form method="post" action="{{ url_for('toggle_user', username=username) }}" style="display:inline">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="next" value="/users/{{ username }}">
