@@ -1302,7 +1302,10 @@ def user_proxy(username):
         abort(404)
 
     auth = quote(username, safe="") + ":" + quote(user["password"], safe="")
-    host = request.host.split(":")[0]
+    # 用 urlparse 取主机名:直接 split(":") 在 IPv6 字面量(如 [::1]:18080)下会得到 "["
+    host = urlparse("//" + request.host).hostname or request.host
+    if ":" in host:
+        host = f"[{host}]"  # IPv6 字面量在 URL 里必须带方括号
     return f"socks5://{auth}@{host}:{socks_port()}"
 
 

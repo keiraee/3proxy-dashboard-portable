@@ -174,6 +174,23 @@ class TestPagesSmoke(AppTestCase):
             with self.subTest(path=path):
                 self.assertEqual(200, client.get(path, headers=self.auth).status_code)
 
+    def test_proxy_url_host_handling(self):
+        """回归：IPv6 字面量主机名要保留方括号，普通域名/端口则正常取主机名。"""
+        self.seed_user_and_traffic()
+        client = self.mod.app.test_client()
+
+        body = client.get("/users/alice/proxy",
+                          headers=dict(self.auth, Host="[::1]:18080")).data.decode()
+        self.assertEqual("socks5://alice:pw@[::1]:1234", body)
+
+        body = client.get("/users/alice/proxy",
+                          headers=dict(self.auth, Host="panel.example.com")).data.decode()
+        self.assertEqual("socks5://alice:pw@panel.example.com:1234", body)
+
+        body = client.get("/users/alice/proxy",
+                          headers=dict(self.auth, Host="127.0.0.1:18080")).data.decode()
+        self.assertEqual("socks5://alice:pw@127.0.0.1:1234", body)
+
     def test_csv_export_content(self):
         ts = self.seed_user_and_traffic()
         client = self.mod.app.test_client()
