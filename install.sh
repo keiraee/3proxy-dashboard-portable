@@ -38,16 +38,17 @@ err()  { echo -e "${RED}[x]${NC} $*"; }
 print_banner() {
   echo -e "${CYAN}"
   cat <<'EOF'
- ____  ____  ____   ____   ____   ____   ___
-|___ \|  _ \|  _ \ / __ \ / __ \ / __ \ / _ \
-  __) | |_) | |_) | |  | | |  | | |  | | | | |
- / __/|  _ <|  _ <| |  | | |  | | |  | | |_| |
-|_____|_| \_\_| \_\_\____\ \____\ \____\ \___/
-  ____  _   _  ____ ____  ____   ___   ___  _   _
- |  _ \| | | |/ ___/ ___||  _ \ / _ \ / _ \| \ | |
- | | | | | | | |   \___ \| | | | | | | | | |  \| |
- | |_| | |_| | |___ ___) | |_| | |_| | |_| | |\  |
- |____/ \___/ \____|____/|____/ \___/ \___/|_| \_|
+ _____ ____  ____   _____  ____   __
+|___ /|  _ \|  _ \ / _ \ \/ /\ \ / /
+  |_ \| |_) | |_) | | | \  /  \ V /
+ ___) |  __/|  _ <| |_| /  \   | |
+|____/|_|   |_| \_\\___/_/\_\  |_|
+
+ ____    _    ____  _   _ ____   ___    _    ____  ____
+|  _ \  / \  / ___|| | | | __ ) / _ \  / \  |  _ \|  _ \
+| | | |/ _ \ \___ \| |_| |  _ \| | | |/ _ \ | |_) | | | |
+| |_| / ___ \ ___) |  _  | |_) | |_| / ___ \|  _ <| |_| |
+|____/_/   \_\____/|_| |_|____/ \___/_/   \_\_| \_\____/
 EOF
   echo -e "${NC}"
   echo "Welcome 3proxy Dashboard"
@@ -231,15 +232,9 @@ do_install() {
   bash "$PKG_DIR/install/install-3proxy.sh"
   echo "[2/4] 安装管理面板"
   bash "$PKG_DIR/install/install-dashboard.sh"
-  echo "[3/4] 配置 HTTPS"
+  echo "[3/4] 配置 HTTPS（自动申请证书）"
   install_cli
-  local caddy_ans="" domain=""
-  read -r -p "配置 Caddy 反代并申请 HTTPS 证书? [Y/n]: " caddy_ans || caddy_ans="y"
-  if [[ -z "$caddy_ans" || "$caddy_ans" == [Yy] ]]; then
-    do_caddy
-  else
-    warn "跳过 HTTPS 配置（之后执行 3p caddy 开通）"
-  fi
+  do_caddy auto
   show_ports
   echo "[4/4] 验证"
   domain="$(panel_domain)"
@@ -262,6 +257,8 @@ do_update() {
 
 do_caddy() {
   # 只往 Caddyfile 末尾追加 3proxy. 子域站点，绝不改动已有项目配置
+  # $1=auto：无人值守模式，默认域名直接配置，不询问
+  local mode="${1:-}"
   if ! command -v caddy >/dev/null 2>&1; then
     warn "未检测到 Caddy，正在安装..."
     apt-get -o DPkg::Lock::Timeout=300 update -qq || true
@@ -284,7 +281,9 @@ do_caddy() {
     public_ip="$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo "")"
     default_domain="3proxy.${public_ip//./-}.sslip.io"
     [[ -z "$public_ip" ]] && default_domain=""
-    read -r -p "面板域名 [${default_domain}]: " domain || true
+    if [[ "$mode" != "auto" ]]; then
+      read -r -p "面板域名 [${default_domain}]: " domain || true
+    fi
     domain="${domain:-$default_domain}"
     if [[ -z "$domain" ]]; then
       err "未输入域名"

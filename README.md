@@ -61,7 +61,7 @@ sudo bash install.sh
 3. 生成 `/etc/3proxy/3proxy.cfg` 与 systemd 服务；**自动生成随机初始 SOCKS 账号**（3proxy 配置必须含用户行才能认证，装前会说明原因；账号可随时在面板删除/更换）
 4. 面板建 venv 装 flask+gunicorn，生成 `/etc/3proxy-dashboard.env`（随机 admin 密码）
 5. 注册 `3p` 管理命令，打印连接信息（地址/端口/账号/密码）
-6. **自动提示配置 Caddy 反代并申请 HTTPS 证书**（回车即用默认 `3proxy.<IP>.sslip.io`，免 DNS；也可输入自己的域名）
+6. **自动配置 Caddy 反代并申请 HTTPS 证书**（零确认直接申请，默认 `3proxy.<IP>.sslip.io` 免 DNS；想用自己域名装完执行 `3p caddy`）
 7. 打印**需放行端口清单**（本机防火墙 ufw/firewalld 自动放行；云服务商安全组/防火墙请到控制台放行）
 
 ### 安装后验证
