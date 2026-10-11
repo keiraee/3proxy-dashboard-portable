@@ -22,8 +22,9 @@ fi
 
 echo "===== 安装 3proxy Dashboard（可移植包） ====="
 
-apt-get update -qq
-apt-get install -y python3 python3-venv python3-pip openssl curl >/dev/null
+# -o DPkg::Lock::Timeout：等 unattended-upgrades 等进程放锁，避免安装被系统自动更新打断
+apt-get -o DPkg::Lock::Timeout=300 update -qq || true
+apt-get -o DPkg::Lock::Timeout=300 install -y python3 python3-venv python3-pip openssl curl >/dev/null
 
 mkdir -p "$APP_DIR"
 

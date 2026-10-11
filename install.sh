@@ -113,8 +113,8 @@ do_caddy() {
   echo -e "${CYAN}===== 配置 Caddy 反代（追加模式） =====${NC}"
   if ! command -v caddy >/dev/null 2>&1; then
     warn "未检测到 Caddy，正在安装..."
-    apt-get update -qq
-    apt-get install -y caddy >/dev/null
+    apt-get -o DPkg::Lock::Timeout=300 update -qq || true
+    apt-get -o DPkg::Lock::Timeout=300 install -y caddy >/dev/null
     ok "Caddy 已安装"
   fi
 

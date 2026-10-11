@@ -28,8 +28,9 @@ fi
 
 echo "===== 安装 3proxy ====="
 
-apt-get update -qq
-apt-get install -y curl ca-certificates openssl >/dev/null
+# -o DPkg::Lock::Timeout：等 unattended-upgrades 等进程放锁，避免安装被系统自动更新打断
+apt-get -o DPkg::Lock::Timeout=300 update -qq || true
+apt-get -o DPkg::Lock::Timeout=300 install -y curl ca-certificates openssl >/dev/null
 
 fetch() { # fetch <url> <输出文件>：直连失败走镜像
   curl -fsSL --connect-timeout 15 -o "$2" "$1" \
@@ -68,7 +69,7 @@ if [[ ! -x "$BIN_DIR/3proxy" ]]; then
 
   if [[ "$GOT" -eq 0 ]]; then
     echo "预编译不可用（架构不支持或下载失败），改用源码编译..."
-    apt-get install -y build-essential tar >/dev/null
+    apt-get -o DPkg::Lock::Timeout=300 install -y build-essential tar >/dev/null
     if [[ ! -f "$SRC_DIR/Makefile.Linux" ]]; then
       echo "下载 3proxy ${VER3PROXY} 源码..."
       TMP_TAR="$(mktemp -d)"
