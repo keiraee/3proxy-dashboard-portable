@@ -213,6 +213,7 @@ function toggleTheme(){
   if(u){u.setAttribute("href",next==="dark"?"#i-sun":"#i-moon");}
 }
 document.addEventListener("submit",function(e){
+  if(e.defaultPrevented)return; // 用户取消确认框时不要置灰按钮,否则会一直卡在"处理中…"
   var b=e.target.querySelector("button[type=submit]");
   if(b&&!b.disabled){b.dataset.label=b.textContent;b.disabled=true;b.textContent="处理中…";}
 });

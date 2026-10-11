@@ -95,6 +95,27 @@ class TestLogParsing(AppTestCase):
         self.assertEqual(["alice", "bob"], [r["username"] for r in self._rows()],
                          "半行补全后必须入库，不能丢失整条记录")
 
+    def test_parses_real_3proxy_output(self):
+        """用 3proxy 二进制实测抓到的真实日志行校验正则（含启动行需跳过）。"""
+        real = (
+            b"L1791711502 - 0.0.0.0:18081 0.0.0.0:0 IN:0 OUT:0 H:[0.0.0.0] D:0 E:00000\n"
+            b"L1791711504 tester 127.0.0.1:55092 127.0.0.1:18090 IN:543 OUT:79"
+            b" H:127.0.0.1 D:2 E:00000\n"
+        )
+        self.mod.LOG_PATH.write_bytes(real)
+        self.mod.parse_log_incrementally()
+        with self.mod.db_connection() as conn:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT username, client_ip, target, download, upload, host FROM traffic"
+            ).fetchall()]
+        self.assertEqual(1, len(rows), "用户为 - 的启动行必须跳过")
+        self.assertEqual("tester", rows[0]["username"])
+        self.assertEqual("127.0.0.1", rows[0]["client_ip"])
+        self.assertEqual("127.0.0.1:18090", rows[0]["target"])
+        self.assertEqual(543, rows[0]["download"])
+        self.assertEqual(79, rows[0]["upload"])
+        self.assertEqual("127.0.0.1", rows[0]["host"])
+
 
 class TestTimezoneBuckets(AppTestCase):
     def test_buckets_follow_tz_name_not_system(self):
@@ -199,6 +220,15 @@ class TestPagesSmoke(AppTestCase):
         client = self.mod.app.test_client()
         body = client.get("/", headers=self.auth).data.decode("utf-8")
         self.assertIn("data-sortdir", body)
+
+    def test_submit_handler_ignores_cancelled_events(self):
+        """回归：取消删除确认后按钮不能卡在"处理中…"（需检查 defaultPrevented）。"""
+        self.seed_user_and_traffic()
+        client = self.mod.app.test_client()
+        body = client.get("/", headers=self.auth).data.decode("utf-8")
+        self.assertIn("if(e.defaultPrevented)return;", body)
+        # 删除表单确实使用 confirm 取消事件，正是这个场景会触发上面的分支
+        self.assertIn("onsubmit=\"return confirm(", body)
 
 
 if __name__ == "__main__":
