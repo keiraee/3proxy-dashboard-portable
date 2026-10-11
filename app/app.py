@@ -544,9 +544,13 @@ def parse_log_incrementally():
         with db_connection() as conn:
             old_inode = get_state(conn, "log_inode")
             old_offset = int(get_state(conn, "log_offset", "0") or 0)
+            generation = int(get_state(conn, "log_generation", "0") or 0)
 
             if old_inode != inode or stat.st_size < old_offset:
                 old_offset = 0
+                # 截断(如 copytruncate)/换文件后偏移量从头再来,
+                # event_key 递增代数,避免与旧记录同键碰撞被 INSERT OR IGNORE 静默丢弃
+                generation += 1
 
             with LOG_PATH.open("rb") as log_file:
                 log_file.seek(old_offset)
@@ -591,7 +595,7 @@ def parse_log_incrementally():
                     download = int(match.group(5))
                     upload = int(match.group(6))
                     host = (match.group(7) or "").strip("[]")
-                    event_key = f"{inode}:{line_offset}"
+                    event_key = f"{inode}:{generation}:{line_offset}"
 
                     conn.execute(
                         """
@@ -615,6 +619,7 @@ def parse_log_incrementally():
 
                 set_state(conn, "log_inode", inode)
                 set_state(conn, "log_offset", safe_offset)
+                set_state(conn, "log_generation", generation)
 
 
 def authorized():

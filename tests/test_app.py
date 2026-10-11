@@ -95,6 +95,21 @@ class TestLogParsing(AppTestCase):
         self.assertEqual(["alice", "bob"], [r["username"] for r in self._rows()],
                          "半行补全后必须入库，不能丢失整条记录")
 
+    def test_truncated_log_is_reingested(self):
+        """回归：日志被截断(copytruncate)后，同偏移量的新行不能与旧 event_key 碰撞被丢弃。"""
+        self.mod.LOG_PATH.write_bytes(self.COMPLETE)
+        self.mod.parse_log_incrementally()
+        self.assertEqual(["alice"], [r["username"] for r in self._rows()])
+
+        # 截断后写入更短的新行（总长度 < 旧偏移量，截断可被检测到），
+        # 且新行起点与旧记录同为偏移量 0，制造 event_key 碰撞
+        short = b"L1760000099 bob 1.2.3.4:53444 93.184.216.34:443 IN:1 OUT:2 H:x D:1 E:0\n"
+        self.mod.LOG_PATH.write_bytes(short)
+        self.mod.parse_log_incrementally()
+        self.assertEqual(["alice", "bob"],
+                         sorted(r["username"] for r in self._rows()),
+                         "截断后同偏移量的新行必须重新入库，不能被去重静默丢弃")
+
     def test_parses_real_3proxy_output(self):
         """用 3proxy 二进制实测抓到的真实日志行校验正则（含启动行需跳过）。"""
         real = (
