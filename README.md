@@ -56,7 +56,7 @@ sudo bash install.sh
 
 ### 安装时会发生什么
 
-1. 下载**预编译 3proxy 静态二进制**（amd64/arm64，约 150KB，SHA256 校验），**不装编译器、不占内存**——512M 小机器无压力；下载失败或特殊架构才回退源码编译（此时才装编译工具）
+1. 下载**预编译 3proxy 静态二进制**（当前仅提供 amd64，约 150KB，SHA256 校验），**不装编译器、不占内存**——512M 小机器无压力；arm64 或下载失败时自动回退源码编译（此时才装编译工具）
 2. 检测 SOCKS5（默认 1234）与面板（默认 18080）端口，**被占用自动顺延**
 3. 生成 `/etc/3proxy/3proxy.cfg` 与 systemd 服务；**自动生成随机初始 SOCKS 账号**（3proxy 配置必须含用户行才能认证，装前会说明原因；账号可随时在面板删除/更换）
 4. 面板建 venv 装 flask+gunicorn，生成 `/etc/3proxy-dashboard.env`（随机 admin 密码）
@@ -207,6 +207,6 @@ sha256sum -c SHA256SUMS        # 在仓库根目录执行，全部 OK 即一致
 
 **3proxy 本体要不要跟着更新**：`3p update` 只更新面板与脚本，不动 3proxy 二进制（生产稳定优先）。要升本体：删掉 `/opt/3proxy/bin/3proxy` 后 `sudo bash install/install-3proxy.sh`（配置与账号保留）。
 
-**为什么不用编译安装？** 3proxy 官方 releases 只发源码、没有预编译包（不像 hysteria2）。本仓库 `bin/` 直接提供 **musl 静态编译**的二进制（任何 Linux 发行版通用、与 glibc 版本无关），安装时直接下载并 SHA256 校验——512M 内存小机器全程不装编译器。编译只是兜底路径。
+**为什么不用编译安装？** 3proxy 官方 releases 只发源码、没有预编译包（不像 hysteria2）。本仓库 `bin/` 直接提供 **musl 静态编译**的 amd64 二进制（任何 Linux 发行版通用、与 glibc 版本无关），安装时直接下载并 SHA256 校验；arm64 没有预编译包，自动走源码编译——512M 内存小机器全程不装编译器。编译只是兜底路径。
 
 **旧服务器数据**：无需拷贝 `dashboard_v3.db`，首次启动自动建表并从 `3proxy.cfg` 导入用户名。
