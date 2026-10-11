@@ -1370,26 +1370,26 @@ def logs_download():
     cutoff = (
         int(datetime.now(TZ).timestamp()) - int(hours) * 3600 if hours else None
     )
-    lines = []
-
-    try:
-        with LOG_PATH.open("rb") as file:
-            for raw in file:
-                line = raw.decode("utf-8", errors="ignore").rstrip()
-                if cutoff is not None:
-                    match = re.match(r"^L(\d+)", line)
-                    if not match or int(match.group(1)) < cutoff:
-                        continue
-                lines.append(line)
-    except OSError:
-        pass
+    def generate():
+        # 流式逐行输出,避免大日志整体载入内存
+        try:
+            with LOG_PATH.open("rb") as file:
+                for raw in file:
+                    line = raw.decode("utf-8", errors="ignore").rstrip()
+                    if cutoff is not None:
+                        match = re.match(r"^L(\d+)", line)
+                        if not match or int(match.group(1)) < cutoff:
+                            continue
+                    yield line + "\n"
+        except OSError:
+            pass
 
     stamp = datetime.now(TZ).strftime("%Y%m%d")
     window = f"{hours}h" if hours else "all"
     filename = f"3proxy-log-{window}-{stamp}.txt"
 
     return Response(
-        "\n".join(lines) + "\n",
+        generate(),
         mimetype="text/plain; charset=utf-8",
         headers={
             "Content-Disposition": f"attachment; filename={filename}"
