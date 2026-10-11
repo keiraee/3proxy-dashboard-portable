@@ -180,6 +180,14 @@ class TestAuthAndCsrf(AppTestCase):
         self.assertNotIn("users old:CL:pw", config)
 
 
+class TestSocksPort(AppTestCase):
+    def test_commented_socks_line_is_ignored(self):
+        """回归：注释掉的 socks 行不能被当成实际端口（复制代理连接会指向错误端口）。"""
+        self.mod.PROXY_CONFIG.write_text(
+            "# socks -p9999\nsocks -p1080\n", encoding="utf-8")
+        self.assertEqual("1080", self.mod.socks_port())
+
+
 class TestPagesSmoke(AppTestCase):
     def test_pages_render(self):
         self.seed_user_and_traffic()

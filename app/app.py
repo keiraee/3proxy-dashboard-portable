@@ -1233,7 +1233,8 @@ def socks_port():
     except OSError:
         return "1234"
 
-    match = re.search(r"socks\s+-p(\d+)", text)
+    # 行首锚定跳过 # 注释行，否则注释掉的旧端口会被当成实际端口
+    match = re.search(r"^\s*socks\s+-p(\d+)", text, re.MULTILINE)
     return match.group(1) if match else "1234"
 
 

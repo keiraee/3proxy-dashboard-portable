@@ -145,7 +145,8 @@ panel_domain() {
 }
 
 socks_port() {
-  grep -oP 'socks\s+-p\K[0-9]+' /etc/3proxy/3proxy.cfg 2>/dev/null | head -n 1
+  # 行首锚定跳过 # 注释行，否则注释掉的旧端口会被当成实际端口
+  grep -oP '^\s*socks\s+-p\K[0-9]+' /etc/3proxy/3proxy.cfg 2>/dev/null | head -n 1
 }
 
 socks_creds() {
