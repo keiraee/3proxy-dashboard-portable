@@ -274,7 +274,8 @@ function closeMenus(){
   Array.prototype.forEach.call(document.querySelectorAll(".menu.open"),function(m){m.classList.remove("open");});
   Array.prototype.forEach.call(document.querySelectorAll(".menu-btn.open"),function(b){b.classList.remove("open");});
 }
-function toggleMenu(btn){
+function toggleMenu(btn,ev){
+  if(ev&&ev.stopPropagation){ev.stopPropagation();}
   var menu=btn.nextElementSibling;
   if(!menu)return;
   var wasOpen=menu.classList.contains("open");
@@ -314,7 +315,7 @@ HEADER = """
     <button id="themeBtn" class="icon-btn" type="button" aria-label="切换主题" title="主题" onclick="toggleTheme()">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-moon"/></svg>
     </button>
-    <button class="btn" type="button" onclick="toggleMenu(this)">菜单</button>
+    <button class="btn" type="button" onclick="toggleMenu(this,event)">菜单</button>
     <div class="menu">
       <button type="button" onclick="location.href='{{ url_for('export_csv', h=1) }}'">下载日志 · 最近 1 小时</button>
       <button type="button" onclick="location.href='{{ url_for('export_csv', h=24) }}'">下载日志 · 最近 24 小时</button>
@@ -910,7 +911,7 @@ def index():
                 <td class="mono">{{ row.last_ip }}</td>
                 <td class="num" data-v="{{ row.ip_count }}">{{ row.ip_count }}</td>
                 <td class="ops-cell">
-                    <button class="menu-btn" type="button" aria-label="操作" onclick="toggleMenu(this)">
+                    <button class="menu-btn" type="button" aria-label="操作" onclick="toggleMenu(this,event)">
                         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"/></svg>
                     </button>
                     <div class="menu">
