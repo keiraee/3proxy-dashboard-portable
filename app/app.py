@@ -339,9 +339,28 @@ HEADER = """
 """
 
 
+def local_day(ts):
+    # 把 Unix 时间戳按面板配置的时区 TZ_NAME 折算成 YYYY-MM-DD。
+    # 不能依赖 SQLite 的 'localtime'：它用的是服务器系统时区（/etc/localtime 或 TZ 环境变量），
+    # 与面板配置的 TZ_NAME 不一致时，趋势图/24 小时分布会整体偏移。
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(int(ts), TZ).strftime("%Y-%m-%d")
+
+
+def local_hour(ts):
+    # 同上，折算成 00-23 的小时字符串，供 24 小时分布使用。
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(int(ts), TZ).strftime("%H")
+
+
 def db_connection():
     connection = sqlite3.connect(DB_PATH, timeout=20)
     connection.row_factory = sqlite3.Row
+    # 注册按 TZ_NAME 分桶的函数，替代受系统时区影响的 'localtime'
+    connection.create_function("local_day", 1, local_day, deterministic=True)
+    connection.create_function("local_hour", 1, local_hour, deterministic=True)
     return connection
 
 
@@ -1435,7 +1454,7 @@ def logs_page():
 
         day_rows = conn.execute(
             """
-            SELECT date(ts, 'unixepoch', 'localtime') AS day,
+            SELECT local_day(ts) AS day,
                    COALESCE(SUM(download), 0) AS dl,
                    COALESCE(SUM(upload), 0) AS ul
             FROM traffic WHERE ts >= ?
@@ -1446,7 +1465,7 @@ def logs_page():
 
         hour_rows = conn.execute(
             """
-            SELECT strftime('%H', ts, 'unixepoch', 'localtime') AS hour,
+            SELECT local_hour(ts) AS hour,
                    COALESCE(SUM(download + upload), 0) AS total
             FROM traffic WHERE ts >= ?
             GROUP BY hour
@@ -1759,7 +1778,7 @@ def user_detail(username):
 
         day_rows = conn.execute(
             """
-            SELECT date(ts, 'unixepoch', 'localtime') AS day,
+            SELECT local_day(ts) AS day,
                    COALESCE(SUM(download), 0) AS dl,
                    COALESCE(SUM(upload), 0) AS ul
             FROM traffic
@@ -1771,7 +1790,7 @@ def user_detail(username):
 
         hour_rows = conn.execute(
             """
-            SELECT strftime('%H', ts, 'unixepoch', 'localtime') AS hour,
+            SELECT local_hour(ts) AS hour,
                    COALESCE(SUM(download + upload), 0) AS total
             FROM traffic
             WHERE username = ? AND ts >= ?
