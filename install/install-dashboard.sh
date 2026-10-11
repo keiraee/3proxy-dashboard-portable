@@ -31,8 +31,11 @@ mkdir -p "$APP_DIR"
 systemctl stop 3proxy-dashboard 2>/dev/null || true
 pkill -f "gunicorn.*app:app" 2>/dev/null || true
 
-# 面板端口冲突自动让位（服务器上已有其他项目占用时顺延）
-DASH_PORT="${DASH_PORT:-18080}"
+# 面板端口冲突自动让位（服务器上已有其他项目占用时顺延）。
+# 更新时优先沿用已部署端口：本次面板是先停再扫端口的，自己的端口必然
+# 空闲，若回到 18080 默认值，面板挪端口后 Caddy 反代还指向旧端口就废了
+EXISTING_PORT="$(grep -oP 'bind 127\.0\.0\.1:\K[0-9]+' "$SERVICE_DST" 2>/dev/null | head -n 1 || true)"
+DASH_PORT="${DASH_PORT:-${EXISTING_PORT:-18080}}"
 while ss -tln 2>/dev/null | grep -q ":${DASH_PORT} "; do
   echo "端口 ${DASH_PORT} 已被占用，顺延..."
   DASH_PORT=$((DASH_PORT + 1))
