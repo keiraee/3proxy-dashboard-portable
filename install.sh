@@ -4,7 +4,7 @@
 # 用法：
 #   sudo bash install.sh              # 交互菜单
 #   sudo bash install.sh install      # 一键安装 3proxy + 管理面板
-#   sudo bash install.sh update       # 更新到最新版（main 分支，SHA256 哈希校验）
+#   sudo bash install.sh update       # 更新到最新发布版（Release 轨道，SHA256 哈希校验）
 #   sudo bash install.sh caddy        # 追加 Caddy 反代（不动已有配置）并申请 HTTPS
 #   sudo bash install.sh cert         # 重新申请 HTTPS 证书（首次失败后手动重试）
 #   sudo bash install.sh status       # 查看状态与账号
@@ -15,17 +15,18 @@
 #
 # 安装完成后终端输入 3p 即可随时打开管理菜单（等同 bash install.sh）
 #
-# 任意服务器单行拉起：
-#   bash <(curl -fsSL https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main/install.sh)
+# 任意服务器单行拉起（以发版为准，跟随最新 Release）：
+#   bash <(curl -fsSL https://github.com/keiraee/3proxy-dashboard-portable/releases/latest/download/install.sh)
 set -euo pipefail
 
-# 更新轨道：main（开发版，未发版）。发版后可固定版本：REPO_REF=vX.Y.Z，或写入 env 的 UPDATE_REF
+# 更新轨道：Release（以发版为准，跟随最新 Release）。开发调试可 REPO_REF=main，或写入 env 的 UPDATE_REF
 ENV_FILE="/etc/3proxy-dashboard.env"
+RELEASE_FALLBACK="v1.0.0" # GitHub API 不可用时的兜底版本（发新版时同步更新）
 REF="${REPO_REF:-}"
 if [[ -z "$REF" && -f "$ENV_FILE" ]]; then
   REF="$(grep -E '^UPDATE_REF=' "$ENV_FILE" | head -n 1 | cut -d= -f2- || true)"
 fi
-REF="${REF:-main}"
+REF="${REF:-}" # 空 = 跟随最新 Release，pin_repo 时解析
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable}"
 REPO_RAW="${REPO_BASE}/${REF}"
 GH_MIRROR="${GH_MIRROR-https://gh-proxy.com/}"
@@ -108,7 +109,14 @@ install_cli() {
 update_hash_file="/opt/3proxy-dashboard/.update-hash"
 
 pin_repo() {
-  # 先经 GitHub API 解析当前提交 SHA，再按 SHA 下载 —— 避开 raw 对 /main/ 的
+  # 以发版为准：REF 为空时解析最新 Release 标签；API 不可用退回兜底版本
+  if [[ -z "$REF" ]]; then
+    REF="$(curl -fsSL --connect-timeout 5 \
+      "https://api.github.com/repos/keiraee/3proxy-dashboard-portable/releases/latest" 2>/dev/null \
+      | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)"
+    REF="${REF:-$RELEASE_FALLBACK}"
+  fi
+  # 再经 GitHub API 解析当前提交 SHA，按 SHA 下载 —— 避开 raw 的
   # CDN 缓存（旧校验文件会让更新永远显示"已是最新"）。HY2 同款做法。
   [[ -n "${PIN:-}" ]] && return 0
   local sha=""
@@ -118,7 +126,7 @@ pin_repo() {
   if [[ -n "$sha" ]]; then
     PIN="$sha"
   else
-    PIN="$REF" # API 不可用时退回按分支名拉取
+    PIN="$REF" # API 不可用时退回按分支名/标签拉取
   fi
   REPO_RAW="${REPO_BASE}/${PIN}"
   export REPO_RAW
@@ -200,7 +208,7 @@ print_summary() {
   echo "以后查看账号：3p status"
   echo "以后常用（需 root）："
   echo "  3p              # 菜单"
-  echo "  3p update       # 更新到最新版（SHA256 校验）"
+  echo "  3p update       # 更新到最新发布版（Release 轨道，SHA256 校验）"
   echo "  3p cert         # 证书没签下来时重新申请"
   echo
   echo "云控制台防火墙请放行：TCP 80、TCP 443、TCP ${s_port}"
@@ -293,6 +301,7 @@ do_install() {
 
 do_update() {
   local label sums_tmp sums_new sums_old commit s
+  pin_repo
   if [[ "$REF" == "main" ]]; then
     label="轨道：main（开发版）"
   else
@@ -300,7 +309,6 @@ do_update() {
   fi
   echo -e "${CYAN}===== 更新（${label}） =====${NC}"
 
-  pin_repo
   # 先只拉 SHA256SUMS 比指纹：一致=没有更新，直接跳过
   sums_tmp="$(mktemp)"
   if ! fetch "$REPO_RAW/SHA256SUMS" "$sums_tmp"; then

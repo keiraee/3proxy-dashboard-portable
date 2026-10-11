@@ -1,5 +1,12 @@
 # 3proxy-dashboard-portable
 
+[![Release](https://img.shields.io/github/v/release/keiraee/3proxy-dashboard-portable?color=blue&label=Release)](https://github.com/keiraee/3proxy-dashboard-portable/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/keiraee/3proxy-dashboard-portable/total?color=brightgreen)](https://github.com/keiraee/3proxy-dashboard-portable/releases)
+[![Stars](https://img.shields.io/github/stars/keiraee/3proxy-dashboard-portable?color=yellow)](https://github.com/keiraee/3proxy-dashboard-portable/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/keiraee/3proxy-dashboard-portable)](https://github.com/keiraee/3proxy-dashboard-portable/commits)
+![Platform](https://img.shields.io/badge/platform-Debian%20%7C%20Ubuntu-E95420?logo=debian&logoColor=white)
+![Stack](https://img.shields.io/badge/stack-3proxy%20%7C%20Flask%20%7C%20Caddy-2ea44f)
+
 SOCKS5 代理（3proxy）+ 流量管理面板 的**一键部署包**。任意 Debian/Ubuntu 服务器一条命令装完，带 `3p` 管理命令、Caddy HTTPS 追加式接入、SHA256 哈希校验更新。
 
 提取自 AWS Lightsail 新加坡服务器 `13.228.203.217` 的生产环境，已重构为可移植一键部署。
@@ -7,7 +14,8 @@ SOCKS5 代理（3proxy）+ 流量管理面板 的**一键部署包**。任意 De
 ## 功能
 
 - **一键安装**：预编译 3proxy + Flask 管理面板一步装完，随机生成 SOCKS 账号密码
-- **管理面板**：Basic Auth 登录，管理 SOCKS 用户（增删/启停/改密），按日/月统计流量、在线状态、最近 IP；深/浅色主题，小机器友好
+- **管理面板**：Basic Auth 登录，管理 SOCKS 用户（增删/启停/改密），按日/月统计流量、在线状态、最近 IP；一键复制用户名/密码/IP/代理连接；深/浅色主题，小机器友好
+- **日志中心**：项目动态（安装/更新/增删改全留痕）、运行日志（journalctl + 连接日志）、整机流量总览；连接日志按 1h/24h/3 日/全部下载
 - **`3p` 管理命令**：装完即可用，菜单式管理（安装/更新/HTTPS/证书/卸载/状态）
 - **与已有项目共存**：端口冲突自动让位；Caddy 只追加不覆盖；`3proxy.` 子域前缀不撞其他站点
 - **哈希校验更新**：`3p update` 逐文件 SHA256 校验后才落地，损坏/篡改直接拒绝
@@ -20,30 +28,40 @@ SOCKS5 代理（3proxy）+ 流量管理面板 的**一键部署包**。任意 De
 
 ## 一键安装
 
+**安装以发版为准**：安装与升级都跟随 [Releases](https://github.com/keiraee/3proxy-dashboard-portable/releases) 最新发布版（如 `v1.0.0`），不跟开发分支；所有组件下载后逐文件 SHA256 校验，损坏/篡改直接拒绝。
+
 ### 方式一：单行拉起（推荐，服务器上直接执行）
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main/install.sh)
+bash <(curl -fsSL https://github.com/keiraee/3proxy-dashboard-portable/releases/latest/download/install.sh)
 ```
 
 > 国内服务器 GitHub 不通时：
 > ```bash
-> bash <(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main/install.sh)
+> bash <(curl -fsSL https://gh-proxy.com/https://github.com/keiraee/3proxy-dashboard-portable/releases/latest/download/install.sh)
 > ```
 
 回车后出现菜单，选 `1` 一键安装（3proxy + 管理面板）。也可以非交互直接装：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main/install.sh) install
+bash <(curl -fsSL https://github.com/keiraee/3proxy-dashboard-portable/releases/latest/download/install.sh) install
+```
+
+锁版本安装（以 `v1.0.0` 为例，版本号看 [Releases](https://github.com/keiraee/3proxy-dashboard-portable/releases)）：
+
+```bash
+REPO_REF=v1.0.0 bash <(curl -fsSL https://github.com/keiraee/3proxy-dashboard-portable/releases/latest/download/install.sh) install
 ```
 
 ### 方式二：克隆后安装
 
 ```bash
-git clone https://github.com/keiraee/3proxy-dashboard-portable
+git clone --branch v1.0.0 --depth 1 https://github.com/keiraee/3proxy-dashboard-portable
 cd 3proxy-dashboard-portable
 sudo bash install.sh
 ```
+
+> 分支名换成 [Releases](https://github.com/keiraee/3proxy-dashboard-portable/releases) 页最新版本号；不带 `--branch` 则克隆到开发分支 main。
 
 ### 方式三：离线拷贝
 
@@ -88,7 +106,7 @@ curl --socks5 用户名:密码@服务器IP:端口 https://ifconfig.me
 |------|------|
 | `3p` | 打开管理菜单 |
 | `3p install` | 一键安装（3proxy + 面板） |
-| `3p update` | 更新到最新版（main 分支，SHA256 校验） |
+| `3p update` | 更新到最新发布版（Release 轨道，SHA256 校验） |
 | `3p caddy` | 追加 Caddy 反代（不动已有配置）并申请 HTTPS |
 | `3p cert` | 重新申请 HTTPS 证书（首次失败后重试） |
 | `3p status` | 查看状态、端口、面板哈希与账号 |
@@ -126,29 +144,20 @@ curl --socks5 用户名:密码@服务器IP:端口 https://ifconfig.me
 
 可反复重试。日志持续观察：`journalctl -u caddy -f`。
 
-## 更新机制
-
-### 怎么更新
+## 升级
 
 ```bash
 3p update
 ```
+
+**升级以发版为准**：`3p update` 自动跟随 [Releases](https://github.com/keiraee/3proxy-dashboard-portable/releases) 最新发布版，日志里的「版本：vX.Y.Z」标明更新到哪一版，更新内容看对应 [Release 说明](https://github.com/keiraee/3proxy-dashboard-portable/releases)。
 
 流程（与 HY2 AIO 同款）：先拉 `SHA256SUMS` 与上次记录**比指纹**——
 
 - **哈希一致**：日志打印「上次哈希 / 本次哈希」后直接跳过，不重装不重启
 - **哈希变化**：下载组件 → 逐文件 SHA256 校验 → 落地重启，日志标明变化前后的哈希
 
-main 轨道的哈希行会附带**提交短号**（`main@abc1234`），一眼看出更新到了哪个提交。首次安装即记录基准哈希。
-
-### 更新轨道定位（重要）
-
-| 轨道 | 定位 |
-|------|------|
-| **main（当前，未发版）** | **更新轨道**。`3p update` 跟 main，凭哈希变化判断有无更新 |
-| **Release/tag（发版后）** | 稳定版本。`3p update` 显示**版本号**，变更见 GitHub Release 说明；锁定版本：`UPDATE_REF=v1.0.0` 写入 `/etc/3proxy-dashboard.env`（或临时 `REPO_REF=v1.0.0 3p update`） |
-
-发版后想切回开发版：把 `UPDATE_REF=main`（或删掉该行）。
+首次安装即记录基准哈希。锁定/切换版本：`UPDATE_REF=vX.Y.Z` 写入 `/etc/3proxy-dashboard.env`（或临时 `REPO_REF=v1.0.0 3p update`）；想跟开发版把值改成 `main`（哈希行附带提交短号 `main@abc1234`）。
 
 ### 哈希机制（每次更新必须带）
 
