@@ -281,7 +281,8 @@ do_install() {
   echo "[3/4] 配置 HTTPS（自动申请证书）"
   install_cli
   save_update_hash
-  do_caddy auto
+  # HTTPS 只是加分项：失败不能中断安装，否则下面的账号密码用户永远看不到
+  do_caddy auto || warn "HTTPS 配置未完成（可稍后执行 3p caddy 重试），继续输出账号信息"
   show_ports
   echo "[4/4] 验证"
   domain="$(panel_domain)"
@@ -349,7 +350,7 @@ do_caddy() {
   # 先确认面板已安装，否则不必白装一遍 Caddy
   if [[ ! -f /etc/systemd/system/3proxy-dashboard.service ]]; then
     err "面板尚未安装，请先执行安装（选项 1 或 3）"
-    exit 1
+    return 1
   fi
 
   if ! command -v caddy >/dev/null 2>&1; then
@@ -376,7 +377,7 @@ do_caddy() {
     domain="${domain:-$default_domain}"
     if [[ -z "$domain" ]]; then
       err "未输入域名"
-      exit 1
+      return 1
     fi
 
     touch "$CADDYFILE"
@@ -394,7 +395,7 @@ EOF
       head -n "$before" "$CADDYFILE" >"$CADDYFILE.3p-tmp" && mv "$CADDYFILE.3p-tmp" "$CADDYFILE"
       err "Caddy 配置校验失败，已回滚本次追加（不影响已有配置）"
       caddy validate --config "$CADDYFILE" || true
-      exit 1
+      return 1
     fi
     ok "已追加站点 ${domain} -> 127.0.0.1:${port}（只追加，未改动其他项目）"
   fi
@@ -408,7 +409,7 @@ do_cert() {
   if ! caddy validate --config "$CADDYFILE" >/dev/null 2>&1; then
     err "Caddyfile 校验失败，请先修复配置："
     caddy validate --config "$CADDYFILE" || true
-    exit 1
+    return 1
   fi
   systemctl restart caddy
   sleep 2
@@ -417,7 +418,7 @@ do_cert() {
     ok "Caddy 已重启，证书申请通常 1 分钟内完成"
   else
     err "Caddy 启动失败，查看日志： journalctl -u caddy -n 30"
-    exit 1
+    return 1
   fi
   echo "持续观察: journalctl -u caddy -f"
 }
