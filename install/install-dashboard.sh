@@ -20,7 +20,7 @@ if [[ ! -f "$PKG_DIR/app/app.py" ]]; then
   exit 1
 fi
 
-echo "===== 安装 3proxy 管理面板 ====="
+[[ "${UPDATE_MODE:-0}" == "1" ]] || echo "===== 安装 3proxy 管理面板 ====="
 
 # -o DPkg::Lock::Timeout：等 unattended-upgrades 等进程放锁，避免安装被系统自动更新打断
 apt-get -o DPkg::Lock::Timeout=300 update -qq || true
@@ -56,7 +56,7 @@ EOF
   chmod 600 "$ENV_FILE"
   echo "已生成 $ENV_FILE（账号密码见安装结束输出，或 3p status）"
 else
-  echo "保留已有 $ENV_FILE"
+  [[ "${UPDATE_MODE:-0}" == "1" ]] || echo "保留已有 $ENV_FILE"
 fi
 
 python3 -m venv "$APP_DIR/venv"

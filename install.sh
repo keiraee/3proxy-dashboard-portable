@@ -19,12 +19,17 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main/install.sh)
 set -euo pipefail
 
-# 更新轨道：main 分支（Release 仅作稳定版本快照，见 README）
-REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/main}"
+# 更新轨道：main（开发版，未发版）。发版后可固定版本：REPO_REF=vX.Y.Z，或写入 env 的 UPDATE_REF
+ENV_FILE="/etc/3proxy-dashboard.env"
+REF="${REPO_REF:-}"
+if [[ -z "$REF" && -f "$ENV_FILE" ]]; then
+  REF="$(grep -E '^UPDATE_REF=' "$ENV_FILE" | head -n 1 | cut -d= -f2- || true)"
+fi
+REF="${REF:-main}"
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/keiraee/3proxy-dashboard-portable/${REF}}"
 GH_MIRROR="${GH_MIRROR-https://gh-proxy.com/}"
 CADDYFILE="/etc/caddy/Caddyfile"
 CADDY_MARK="# --- 3proxy dashboard (由 3p 追加) ---"
-ENV_FILE="/etc/3proxy-dashboard.env"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -95,7 +100,21 @@ install_cli() {
   # 装完注册 3p 管理命令：终端敲 3p 即可打开本菜单
   prepare_package
   install -m 755 "$PKG_DIR/install.sh" /usr/local/bin/3p
-  ok "管理命令已安装：终端输入 3p 打开管理菜单"
+  [[ "${UPDATE_MODE:-0}" == "1" ]] || ok "管理命令已安装：终端输入 3p 打开管理菜单"
+}
+
+update_hash_file="/opt/3proxy-dashboard/.update-hash"
+
+save_update_hash() {
+  mkdir -p /opt/3proxy-dashboard
+  sha256sum "$PKG_DIR/SHA256SUMS" | awk '{print $1}' >"$update_hash_file"
+}
+
+current_commit() {
+  # main 轨道附带提交短号；失败不影响主流程
+  curl -fsSL --connect-timeout 5 \
+    "https://api.github.com/repos/keiraee/3proxy-dashboard-portable/commits/${REF}" 2>/dev/null \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin)["sha"][:7])' 2>/dev/null || true
 }
 
 panel_port() {
@@ -234,6 +253,7 @@ do_install() {
   bash "$PKG_DIR/install/install-dashboard.sh"
   echo "[3/4] 配置 HTTPS（自动申请证书）"
   install_cli
+  save_update_hash
   do_caddy auto
   show_ports
   echo "[4/4] 验证"
@@ -243,16 +263,52 @@ do_install() {
 }
 
 do_update() {
-  echo -e "${CYAN}===== 更新到最新版（main 分支，SHA256 校验） =====${NC}"
+  local label sums_tmp sums_new sums_old commit s
+  if [[ "$REF" == "main" ]]; then
+    label="轨道：main（开发版）"
+  else
+    label="版本：${REF}"
+  fi
+  echo -e "${CYAN}===== 更新（${label}） =====${NC}"
+
+  # 先只拉 SHA256SUMS 比指纹：一致=没有更新，直接跳过
+  sums_tmp="$(mktemp)"
+  if ! fetch "$REPO_RAW/SHA256SUMS" "$sums_tmp"; then
+    rm -f "$sums_tmp"
+    err "拉取 SHA256SUMS 失败，请检查网络或 REPO_REF"
+    exit 1
+  fi
+  sums_new="$(sha256sum "$sums_tmp" | awk '{print $1}')"
+  rm -f "$sums_tmp"
+  sums_old="$(cat "$update_hash_file" 2>/dev/null || echo "未记录")"
+  commit=""
+  [[ "$REF" == "main" ]] && commit="$(current_commit)"
+
+  echo "上次哈希：${sums_old}"
+  echo "本次哈希：${sums_new}${commit:+ （${REF}@${commit}）}"
+
+  if [[ "$sums_old" == "$sums_new" ]]; then
+    ok "哈希一致，已是最新，无需更新"
+    return 0
+  fi
+
+  echo "哈希变化，开始更新..."
   PKG_DIR="" # 强制从仓库重新拉取最新文件
   prepare_package
-  bash "$PKG_DIR/install/install-dashboard.sh"
+  UPDATE_MODE=1 bash "$PKG_DIR/install/install-dashboard.sh"
   if [[ ! -x /opt/3proxy/bin/3proxy ]]; then
-    bash "$PKG_DIR/install/install-3proxy.sh"
+    UPDATE_MODE=1 bash "$PKG_DIR/install/install-3proxy.sh"
   fi
   install_cli
-  ok "更新完成（3proxy 本体未动，需升级本体请删除 /opt/3proxy/bin/3proxy 后执行 install/install-3proxy.sh）"
-  do_status
+  save_update_hash
+  ok "更新完成（${sums_new:0:12}）；3proxy 本体未动"
+  for s in 3proxy 3proxy-dashboard; do
+    if systemctl is-active --quiet "$s" 2>/dev/null; then
+      ok "$s: 运行中"
+    else
+      err "$s: 未运行"
+    fi
+  done
 }
 
 do_caddy() {
@@ -428,7 +484,7 @@ menu() {
   echo " 1. 一键安装（3proxy + 管理面板）"
   echo " 2. 仅安装 3proxy（SOCKS5）"
   echo " 3. 仅安装管理面板"
-  echo " 4. 更新到最新版（main 分支，SHA256 校验）"
+  echo " 4. 更新（哈希对比，一致自动跳过）"
   echo " 5. 配置 Caddy 反代（追加式，自动申请 HTTPS）"
   echo " 6. 重新申请 HTTPS 证书（首次失败后重试）"
   echo " 7. 启动服务"
