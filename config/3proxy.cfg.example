@@ -8,7 +8,7 @@ nserver 8.8.8.8
 timeouts 1 5 30 60 180 1800 15 60
 
 log /var/log/3proxy/access.log
-logformat "-L%t %U %C:%c %R:%r IN:%I OUT:%O"
+logformat "-L%t %U %C:%c %R:%r IN:%I OUT:%O H:%n D:%D E:%E"
 
 auth strong
 

@@ -8,6 +8,7 @@ import threading
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from flask import (
@@ -37,11 +38,12 @@ app.secret_key = CSRF_TOKEN or os.urandom(32)
 parse_lock = threading.Lock()
 
 BASE_STYLE = """
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3' y='4' width='18' height='6' rx='1.5' fill='none' stroke='%232a78d6' stroke-width='1.75'/%3E%3Crect x='3' y='14' width='18' height='6' rx='1.5' fill='none' stroke='%232a78d6' stroke-width='1.75'/%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#ffffff;--surface:#ffffff;--surface-2:#f5f5f4;--surface-3:#e9e9e7;
   --line:#e4e4e1;--text:#111111;--muted:#5c5c59;--faint:#8c8c88;
-  --accent:#2a78d6;--bad:#d9463f;
+  --accent:#2a78d6;--bad:#d9463f;--ok:#2f7a4d;
   --radius:6px;
   --font:Inter,-apple-system,"Segoe UI",system-ui,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -53,7 +55,7 @@ BASE_STYLE = """
 html[data-theme="dark"]{
   --bg:#111111;--surface:#161616;--surface-2:#1e1e1e;--surface-3:#2a2a2a;
   --line:#2a2a29;--text:#ececea;--muted:#a3a3a0;--faint:#6f6f6c;
-  --accent:#3987e5;--bad:#d9463f;
+  --accent:#3987e5;--bad:#d9463f;--ok:#4caf7d;
   --shadow:0 12px 32px rgba(0,0,0,.45);
   color-scheme:dark;
 }
@@ -108,19 +110,50 @@ tr.disabled td{opacity:.55}
 .ops .btn{padding:4px 9px;font-size:12px}
 .empty{padding:22px 12px;text-align:center;color:var(--faint);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
 .flash{margin:0 0 14px;padding:10px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--line)}
-.flash.success{background:var(--surface-2);color:var(--muted)}
+.flash.success{background:var(--surface);color:var(--ok);border-color:var(--ok)}
 .flash.error{background:var(--surface);color:var(--bad);border-color:var(--bad)}
 .form-body{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
 .form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
 .field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .field label{font-size:12px;color:var(--faint);font-weight:650}
 .input{border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%;background:var(--surface);font-family:var(--mono);font-size:13px}
-.input:focus{outline:none;border-color:var(--text)}
+.input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .daily-row{display:grid;grid-template-columns:96px minmax(0,1fr) 92px;gap:10px;align-items:center;font-size:12px;padding:4px 0}
 .daily-row .amt{text-align:right}
 .bar-track{height:4px;background:var(--surface-3);border-radius:2px;overflow:hidden}
 .bar-track i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.day-cols{display:flex;align-items:stretch;gap:4px;height:180px}
+.day-col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:0}
+.day-col .amt{font-size:10px;color:var(--faint);font-family:var(--mono);margin:0 0 4px;white-space:nowrap;opacity:0}
+.day-col:hover .amt{opacity:1}
+.day-col .stack-bar{display:flex;flex-direction:column;justify-content:flex-end;width:100%;min-height:3px;border-radius:2px 2px 0 0;overflow:hidden}
+.day-col .stack-bar i{display:block;width:100%;min-height:0}
+.day-col .stack-bar .up{background:var(--muted)}
+.day-col .stack-bar .down{background:var(--accent)}
+.day-col .lbl{font-size:10px;color:var(--faint);font-family:var(--mono);white-space:nowrap;margin-top:5px}
+.hour-cols{display:flex;align-items:flex-end;gap:4px;height:150px}
+.hour-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:0;height:100%}
+.hour-col .bar{display:block;width:100%;border-radius:2px 2px 0 0;min-height:3px;background:var(--accent)}
+.hour-col.peak .bar{background:var(--bad)}
+.hour-col .lbl{font-size:10px;color:var(--faint);font-family:var(--mono);margin-top:5px}
+.updown-legend{display:flex;gap:12px;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.updown-legend i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:4px}
+.updown-legend .up i{background:var(--muted)}
+.updown-legend .down i{background:var(--accent)}
+.dest-wrap{overflow:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.dest-table{width:100%;border-collapse:collapse;font-size:12px}
+.dest-table th,.dest-table td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+.dest-table th{font-size:11px;color:var(--faint);font-weight:600}
+.dest-table td.num,.dest-table th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.dest-table tr:last-child td{border-bottom:0}
+.dest-table tr:hover td{background:var(--surface-2)}
+.dest-host{font-weight:650;word-break:break-all}
+.chart-empty{display:flex;align-items:center;justify-content:center;height:120px;color:var(--faint);font-size:12px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.bar-btn{height:10px;border-radius:2px;overflow:hidden;display:flex}
+.bar-btn i{display:block;height:100%}
 .footer{margin-top:18px;font-size:12px;color:var(--faint)}
 svg.sprite{position:absolute;overflow:hidden;width:0;height:0}
 @media(max-width:1100px){.metrics{grid-template-columns:repeat(2,1fr)}}
@@ -139,6 +172,10 @@ function toggleTheme(){
   var u=document.querySelector("#themeBtn use");
   if(u){u.setAttribute("href",next==="dark"?"#i-sun":"#i-moon");}
 }
+document.addEventListener("submit",function(e){
+  var b=e.target.querySelector("button[type=submit]");
+  if(b&&!b.disabled){b.dataset.label=b.textContent;b.disabled=true;b.textContent="处理中…";}
+});
 </script>
 """
 
@@ -160,7 +197,8 @@ HEADER = """
     <button id="themeBtn" class="icon-btn" type="button" aria-label="切换主题" title="主题" onclick="toggleTheme()">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-moon"/></svg>
     </button>
-    <a class="btn primary" href="{{ url_for('index') }}">总览</a>
+    <a class="btn" href="{{ url_for('index') }}">总览</a>
+    <a class="btn primary" href="{{ url_for('index') }}#add-user">+ 新增用户</a>
   </div>
 </header>
 """
@@ -197,10 +235,16 @@ def init_db():
                 client_ip TEXT NOT NULL,
                 target TEXT NOT NULL,
                 download INTEGER NOT NULL DEFAULT 0,
-                upload INTEGER NOT NULL DEFAULT 0
+                upload INTEGER NOT NULL DEFAULT 0,
+                host TEXT
             )
             """
         )
+        # 旧库迁移：补 host 列（目标域名，来自日志 H:%n）
+        try:
+            conn.execute("ALTER TABLE traffic ADD COLUMN host TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS state (
@@ -283,6 +327,41 @@ def import_users_from_config():
             )
 
 
+def upgrade_logformat():
+    # 旧配置迁移：logformat 补 H:%n（目标域名）/ D:%D（时长）/ E:%E（结果码）
+    # 只改配置文件，3proxy 重启后生效（不在此处重启，避免面板崩溃循环牵动代理）
+    if not PROXY_CONFIG.exists():
+        return
+
+    try:
+        lines = PROXY_CONFIG.read_text(
+            encoding="utf-8", errors="ignore"
+        ).splitlines()
+    except OSError:
+        return
+
+    if any("H:%n" in line for line in lines):
+        return
+
+    new_line = (
+        'logformat "-L%t %U %C:%c %R:%r IN:%I OUT:%O H:%n D:%D E:%E"'
+    )
+
+    for index, line in enumerate(lines):
+        if line.strip().startswith("logformat "):
+            lines[index] = new_line
+            break
+    else:
+        return
+
+    try:
+        PROXY_CONFIG.write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
 def split_endpoint(endpoint):
     if ":" not in endpoint:
         return endpoint
@@ -328,7 +407,8 @@ def parse_log_incrementally():
 
                     match = re.search(
                         r"^L(\d+)\s+(\S+)\s+(\S+)\s+(\S+).*?"
-                        r"IN:(\d+)\s+OUT:(\d+)",
+                        r"IN:(\d+)\s+OUT:(\d+)"
+                        r"(?:\s+H:(\S+))?(?:\s+D:(\d+))?(?:\s+E:(\d+))?",
                         line,
                     )
 
@@ -345,15 +425,16 @@ def parse_log_incrementally():
                     target = match.group(4)
                     download = int(match.group(5))
                     upload = int(match.group(6))
+                    host = (match.group(7) or "").strip("[]")
                     event_key = f"{inode}:{line_offset}"
 
                     conn.execute(
                         """
                         INSERT OR IGNORE INTO traffic(
                             event_key, ts, username, client_ip,
-                            target, download, upload
+                            target, download, upload, host
                         )
-                        VALUES(?, ?, ?, ?, ?, ?, ?)
+                        VALUES(?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             event_key,
@@ -363,6 +444,7 @@ def parse_log_incrementally():
                             target,
                             download,
                             upload,
+                            host,
                         ),
                     )
 
@@ -414,7 +496,7 @@ def format_bytes(value):
             if unit == "B":
                 return f"{int(amount)} {unit}"
 
-            return f"{amount:.2f} {unit}"
+            return f"{amount:.2f} {unit}".replace(".00 ", " ")
 
         amount /= 1024
 
@@ -594,6 +676,15 @@ def dashboard_rows():
     return output
 
 
+def redirect_back(fallback="index"):
+    # 操作后回到来源页（仅允许站内路径，防开放重定向）
+    target = request.form.get("next") or request.referrer or ""
+    path = urlparse(target).path
+    if path.startswith("/") and not path.startswith("//"):
+        return redirect(path)
+    return redirect(url_for(fallback))
+
+
 @app.route("/")
 @login_required
 def index():
@@ -665,7 +756,7 @@ def index():
                 <th>本月</th>
                 <th>累计下载 / 上传</th>
                 <th>最近 IP</th>
-                <th>24h IP</th>
+                <th title="近 24 小时内出现过的不同客户端 IP 数">24h IP ⓘ</th>
                 <th style="text-align:right">操作</th>
             </tr>
             </thead>
@@ -700,11 +791,6 @@ def index():
                             <button class="btn" type="submit">{{ "启用" if not row.enabled else "禁用" }}</button>
                         </form>
                         <a class="btn ghost" href="{{ url_for('user_detail', username=row.username) }}">详情</a>
-                        <form method="post" action="{{ url_for('delete_user', username=row.username) }}" style="display:inline"
-                              onsubmit="return confirm('确定永久删除该用户吗？')">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button class="btn bad" type="submit">删除</button>
-                        </form>
                     </div>
                 </td>
             </tr>
@@ -771,7 +857,7 @@ def add_user():
 
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,32}", username):
         flash("用户名格式不正确。", "error")
-        return redirect(url_for("index"))
+        return redirect_back()
 
     if (
         len(password) < 4
@@ -783,7 +869,7 @@ def add_user():
             "密码必须为 4—64 个字符，且不能包含空格或冒号。",
             "error",
         )
-        return redirect(url_for("index"))
+        return redirect_back()
 
     with db_connection() as conn:
         exists = conn.execute(
@@ -793,7 +879,7 @@ def add_user():
 
         if exists:
             flash("该用户名已存在。", "error")
-            return redirect(url_for("index"))
+            return redirect_back()
 
         conn.execute(
             """
@@ -813,9 +899,9 @@ def add_user():
                 (username,),
             )
 
-        flash(f"更新 3proxy 失败：{exc}", "error")
+        flash(f"3proxy 配置更新失败，已回滚到之前状态：{exc}", "error")
 
-    return redirect(url_for("index"))
+    return redirect_back()
 
 
 @app.route("/users/<username>/toggle", methods=["POST"])
@@ -850,9 +936,9 @@ def toggle_user(username):
                 (user["enabled"], username),
             )
 
-        flash(f"更新 3proxy 失败：{exc}", "error")
+        flash(f"3proxy 配置更新失败，已回滚到之前状态：{exc}", "error")
 
-    return redirect(url_for("index"))
+    return redirect_back()
 
 
 @app.route("/users/<username>/password", methods=["POST"])
@@ -871,7 +957,7 @@ def change_password(username):
             "密码必须为 4—64 个字符，且不能包含空格或冒号。",
             "error",
         )
-        return redirect(url_for("index"))
+        return redirect_back()
 
     with db_connection() as conn:
         user = conn.execute(
@@ -899,9 +985,9 @@ def change_password(username):
                 (old_password, username),
             )
 
-        flash(f"更新 3proxy 失败：{exc}", "error")
+        flash(f"3proxy 配置更新失败，已回滚到之前状态：{exc}", "error")
 
-    return redirect(url_for("index"))
+    return redirect_back()
 
 
 @app.route("/users/<username>/delete", methods=["POST"])
@@ -941,15 +1027,16 @@ def delete_user(username):
                 ),
             )
 
-        flash(f"更新 3proxy 失败：{exc}", "error")
+        flash(f"3proxy 配置更新失败，已回滚到之前状态：{exc}", "error")
 
-    return redirect(url_for("index"))
+    return redirect_back()
 
 
 @app.route("/users/<username>")
 @login_required
 def user_detail(username):
     parse_log_incrementally()
+    _, day_start, month_start = time_boundaries()
 
     with db_connection() as conn:
         user = conn.execute(
@@ -960,54 +1047,198 @@ def user_detail(username):
         if not user:
             abort(404)
 
-        traffic = conn.execute(
+        recent_rows = conn.execute(
             """
             SELECT ts, client_ip, target, download, upload
             FROM traffic
             WHERE username = ?
             ORDER BY ts DESC
+            LIMIT 30
             """,
             (username,),
         ).fetchall()
 
-    daily = {}
-    recent = []
+        totals = conn.execute(
+            """
+            SELECT COALESCE(SUM(download), 0) AS dl,
+                   COALESCE(SUM(upload), 0) AS ul
+            FROM traffic WHERE username = ?
+            """,
+            (username,),
+        ).fetchone()
 
-    for row in traffic:
-        local_dt = datetime.fromtimestamp(row["ts"], TZ)
-        day_key = local_dt.strftime("%Y-%m-%d")
-        daily.setdefault(day_key, 0)
-        daily[day_key] += row["download"] + row["upload"]
+        today_month = conn.execute(
+            """
+            SELECT COALESCE(SUM(CASE WHEN ts >= ? THEN download + upload ELSE 0 END), 0) AS today,
+                   COALESCE(SUM(CASE WHEN ts >= ? THEN download + upload ELSE 0 END), 0) AS month
+            FROM traffic WHERE username = ?
+            """,
+            (day_start, month_start, username),
+        ).fetchone()
 
-        if len(recent) < 30:
-            recent.append(
-                {
-                    "time": local_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    "ip": row["client_ip"],
-                    "target": row["target"],
-                    "download": row["download"],
-                    "upload": row["upload"],
-                }
-            )
+        month_all = conn.execute(
+            "SELECT COALESCE(SUM(download + upload), 0) FROM traffic WHERE ts >= ?",
+            (month_start,),
+        ).fetchone()[0]
 
+        now_dt = datetime.now(TZ)
+        cutoff30 = int(
+            (now_dt - timedelta(days=29))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .timestamp()
+        )
+
+        day_rows = conn.execute(
+            """
+            SELECT date(ts, 'unixepoch', 'localtime') AS day,
+                   COALESCE(SUM(download), 0) AS dl,
+                   COALESCE(SUM(upload), 0) AS ul
+            FROM traffic
+            WHERE username = ? AND ts >= ?
+            GROUP BY day
+            """,
+            (username, cutoff30),
+        ).fetchall()
+
+        hour_rows = conn.execute(
+            """
+            SELECT strftime('%H', ts, 'unixepoch', 'localtime') AS hour,
+                   COALESCE(SUM(download + upload), 0) AS total
+            FROM traffic
+            WHERE username = ? AND ts >= ?
+            GROUP BY hour
+            """,
+            (username, cutoff30),
+        ).fetchall()
+
+        site_rows = conn.execute(
+            """
+            SELECT COALESCE(NULLIF(host, ''), target) AS site,
+                   COUNT(*) AS hits,
+                   COALESCE(SUM(upload), 0) AS ul,
+                   COALESCE(SUM(download), 0) AS dl,
+                   COALESCE(SUM(upload + download), 0) AS total,
+                   MAX(ts) AS last_ts
+            FROM traffic
+            WHERE username = ?
+            GROUP BY site
+            ORDER BY total DESC
+            LIMIT 15
+            """,
+            (username,),
+        ).fetchall()
+
+        ip_rows = conn.execute(
+            """
+            SELECT client_ip, COUNT(*) AS hits,
+                   COALESCE(SUM(upload + download), 0) AS total,
+                   MAX(ts) AS last_ts
+            FROM traffic
+            WHERE username = ?
+            GROUP BY client_ip
+            ORDER BY total DESC
+            LIMIT 10
+            """,
+            (username,),
+        ).fetchall()
+
+    recent = [
+        {
+            "time": datetime.fromtimestamp(row["ts"], TZ).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
+            "ip": row["client_ip"],
+            "target": row["target"],
+            "download": row["download"],
+            "upload": row["upload"],
+        }
+        for row in recent_rows
+    ]
+
+    day_map = {
+        row["day"]: (int(row["dl"] or 0), int(row["ul"] or 0))
+        for row in day_rows
+    }
     days = []
 
     for offset in range(29, -1, -1):
-        current_day = (
-            datetime.now(TZ).date() - timedelta(days=offset)
-        ).strftime("%Y-%m-%d")
-
+        day_key = (now_dt.date() - timedelta(days=offset)).strftime(
+            "%Y-%m-%d"
+        )
+        dl, ul = day_map.get(day_key, (0, 0))
         days.append(
             {
-                "date": current_day,
-                "value": daily.get(current_day, 0),
+                "date": day_key,
+                "download": dl,
+                "upload": ul,
+                "total": dl + ul,
             }
         )
 
-    maximum = max((day["value"] for day in days), default=1) or 1
+    day_max = max((day["total"] for day in days), default=1) or 1
 
     for day in days:
-        day["percent"] = max(1, round(day["value"] / maximum * 100))
+        day["pct_total"] = (
+            max(2, round(day["total"] / day_max * 100)) if day["total"] else 0
+        )
+        if day["total"]:
+            day["pct_down"] = round(day["download"] / day["total"] * 100)
+            day["pct_up"] = 100 - day["pct_down"]
+        else:
+            day["pct_down"] = day["pct_up"] = 0
+
+    hour_map = {
+        int(row["hour"]): int(row["total"] or 0) for row in hour_rows
+    }
+    hours = [
+        {"hour": hour, "total": hour_map.get(hour, 0)} for hour in range(24)
+    ]
+    hour_max = max((hour["total"] for hour in hours), default=1) or 1
+    peak_hour = max(hours, key=lambda hour: hour["total"])
+
+    for hour in hours:
+        hour["pct"] = (
+            max(2, round(hour["total"] / hour_max * 100))
+            if hour["total"]
+            else 0
+        )
+        hour["is_peak"] = (
+            hour["hour"] == peak_hour["hour"] and hour["total"] > 0
+        )
+
+    def fmt_ts(value):
+        return (
+            datetime.fromtimestamp(value, TZ).strftime("%m-%d %H:%M")
+            if value
+            else "—"
+        )
+
+    sites = [
+        {
+            "site": row["site"],
+            "hits": row["hits"],
+            "download": int(row["dl"] or 0),
+            "upload": int(row["ul"] or 0),
+            "total": int(row["total"] or 0),
+            "last": fmt_ts(row["last_ts"]),
+        }
+        for row in site_rows
+    ]
+    ips = [
+        {
+            "ip": row["client_ip"],
+            "hits": row["hits"],
+            "total": int(row["total"] or 0),
+            "last": fmt_ts(row["last_ts"]),
+        }
+        for row in ip_rows
+    ]
+
+    today_total = int(today_month["today"] or 0)
+    month_total = int(today_month["month"] or 0)
+    total_download = int(totals["dl"] or 0)
+    total_upload = int(totals["ul"] or 0)
+    share = round(month_total / month_all * 100, 1) if month_all else 0.0
 
     template = """
 <!doctype html>
@@ -1029,61 +1260,140 @@ def user_detail(username):
     {% endfor %}
 {% endwith %}
 
+<div class="kpis">
+    <div class="metric">
+        <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg>本月流量</div>
+        <div class="value">{{ month_total|bytes }}</div>
+        <div class="extra">占全站 {{ share }}%</div>
+    </div>
+    <div class="metric">
+        <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-activity"/></svg>今日流量</div>
+        <div class="value">{{ today_total|bytes }}</div>
+        <div class="extra">{{ username }} · 时区 {{ timezone }}</div>
+    </div>
+    <div class="metric">
+        <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-server"/></svg>累计流量</div>
+        <div class="value">{{ (total_download + total_upload)|bytes }}</div>
+        <div class="extra">↓ {{ total_download|bytes }} · ↑ {{ total_upload|bytes }}</div>
+    </div>
+    <div class="metric">
+        <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-users"/></svg>峰值时段</div>
+        <div class="value mono">{{ "%02d:00"|format(peak_hour.hour) }}</div>
+        <div class="extra">{% if peak_hour.total %}近 30 天最忙小时 · {{ peak_hour.total|bytes }}{% else %}近 30 天暂无流量{% endif %}</div>
+    </div>
+</div>
+
+<section class="section" style="margin-top:0">
+    <div class="section-h">
+        <div>
+            <h2>近 30 天流量趋势</h2>
+            <p class="hint">按天分层展示下载与上传；悬停查看数值。</p>
+        </div>
+        <div class="updown-legend">
+            <span class="down"><i></i>下载</span>
+            <span class="up"><i></i>上传</span>
+        </div>
+    </div>
+    <div class="form-body">
+        <div class="day-cols">
+            {% for day in days %}
+            <div class="day-col" title="{{ day.date }}  ↓ {{ day.download|bytes }}  ↑ {{ day.upload|bytes }}">
+                <div class="amt">{{ day.total|bytes }}</div>
+                {% if day.pct_total %}
+                <div class="stack-bar" style="height:{{ day.pct_total }}%">
+                    <i class="up" style="height:{{ day.pct_up }}%"></i>
+                    <i class="down" style="height:{{ day.pct_down }}%"></i>
+                </div>
+                {% else %}
+                <div class="stack-bar" style="height:2px"></div>
+                {% endif %}
+                <div class="lbl">{% if loop.index0 % 6 == 0 %}{{ day.date[5:] }}{% endif %}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-h">
+        <div>
+            <h2>24 小时使用分布</h2>
+            <p class="hint">近 30 天各小时流量合计，红色为峰值时段。</p>
+        </div>
+    </div>
+    <div class="form-body">
+        <div class="hour-cols">
+            {% for hour in hours %}
+            <div class="hour-col {{ 'peak' if hour.is_peak else '' }}"
+                 title="{{ "%02d:00"|format(hour.hour) }} · {{ hour.total|bytes }}">
+                <div class="bar" style="height:{{ hour.pct }}%"></div>
+                <div class="lbl">{% if hour.hour % 3 == 0 %}{{ hour.hour }}{% endif %}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
 <div class="detail-grid">
     <section class="section" style="margin-top:0">
         <div class="section-h">
             <div>
-                <h2><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg>{{ username }} · 近 30 天流量</h2>
-                <p class="hint">下载与上传流量合计。</p>
-            </div>
-            <a class="btn ghost" href="{{ url_for('index') }}">← 返回总览</a>
-        </div>
-        <div class="form-body">
-            {% for day in days %}
-            <div class="daily-row">
-                <div>{{ day.date }}</div>
-                <div class="bar-track"><i style="width:{{ day.percent }}%"></i></div>
-                <div class="amt">{{ day.value|bytes }}</div>
-            </div>
-            {% endfor %}
-        </div>
-    </section>
-
-    <section class="section" style="margin-top:0">
-        <div class="section-h">
-            <div>
-                <h2>最近连接</h2>
-                <p class="hint">最近 30 条已完成的代理连接。</p>
+                <h2>目标站点分析</h2>
+                <p class="hint">按流量排序的 Top 15 目标（域名或地址）。</p>
             </div>
         </div>
-        {% if recent %}
-        <div class="table-wrap">
-            <table>
+        {% if sites %}
+        <div class="dest-wrap">
+            <table class="dest-table">
                 <thead>
-                <tr>
-                    <th>时间</th>
-                    <th>客户端 IP</th>
-                    <th>目标地址</th>
-                    <th>下载 / 上传</th>
-                </tr>
+                <tr><th>目标</th><th class="num">次数</th><th class="num">下载</th><th class="num">上传</th><th class="num">合计</th><th>最近</th></tr>
                 </thead>
                 <tbody>
-                {% for item in recent %}
+                {% for item in sites %}
                 <tr>
-                    <td class="mono">{{ item.time }}</td>
-                    <td class="mono">{{ item.ip }}</td>
-                    <td class="mono">{{ item.target }}</td>
-                    <td class="num">
-                        ↓ {{ item.download|bytes }}
-                        <div class="user-note">↑ {{ item.upload|bytes }}</div>
-                    </td>
+                    <td class="dest-host">{{ item.site }}</td>
+                    <td class="num">{{ item.hits }}</td>
+                    <td class="num">{{ item.download|bytes }}</td>
+                    <td class="num">{{ item.upload|bytes }}</td>
+                    <td class="num">{{ item.total|bytes }}</td>
+                    <td class="mono">{{ item.last }}</td>
                 </tr>
                 {% endfor %}
                 </tbody>
             </table>
         </div>
         {% else %}
-            <div class="empty">暂无流量记录。</div>
+            <div class="empty">暂无站点记录。</div>
+        {% endif %}
+    </section>
+
+    <section class="section" style="margin-top:0">
+        <div class="section-h">
+            <div>
+                <h2>客户端 IP 分析</h2>
+                <p class="hint">按流量排序的 Top 10 来源。</p>
+            </div>
+        </div>
+        {% if ips %}
+        <div class="dest-wrap">
+            <table class="dest-table">
+                <thead>
+                <tr><th>客户端 IP</th><th class="num">次数</th><th class="num">流量</th><th>最近</th></tr>
+                </thead>
+                <tbody>
+                {% for item in ips %}
+                <tr>
+                    <td class="dest-host mono">{{ item.ip }}</td>
+                    <td class="num">{{ item.hits }}</td>
+                    <td class="num">{{ item.total|bytes }}</td>
+                    <td class="mono">{{ item.last }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <div class="empty">暂无来源记录。</div>
         {% endif %}
     </section>
 </div>
@@ -1091,20 +1401,75 @@ def user_detail(username):
 <section class="section">
     <div class="section-h">
         <div>
-            <h2>修改 {{ username }} 的密码</h2>
-            <p class="hint">保存后立即写入 3proxy 配置并生效。</p>
+            <h2>最近连接</h2>
+            <p class="hint">最近 30 条已完成的代理连接。</p>
         </div>
     </div>
+    {% if recent %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>时间</th>
+                <th>客户端 IP</th>
+                <th>目标地址</th>
+                <th>下载 / 上传</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in recent %}
+            <tr>
+                <td class="mono">{{ item.time }}</td>
+                <td class="mono">{{ item.ip }}</td>
+                <td class="mono">{{ item.target }}</td>
+                <td class="num">
+                    ↓ {{ item.download|bytes }}
+                    <div class="user-note">↑ {{ item.upload|bytes }}</div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <div class="empty">暂无流量记录。</div>
+    {% endif %}
+</section>
+
+<section class="section">
+    <div class="section-h">
+        <div>
+            <h2>用户操作</h2>
+            <p class="hint">改动立即写入 3proxy 配置并生效；流量统计不会被删除。</p>
+        </div>
+        <a class="btn ghost" href="{{ url_for('index') }}">← 返回总览</a>
+    </div>
     <div class="form-body">
+        <div class="ops" style="justify-content:flex-start;margin-bottom:16px">
+            <form method="post" action="{{ url_for('toggle_user', username=username) }}" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="next" value="/users/{{ username }}">
+                <button class="btn" type="submit">{{ "启用" if not enabled else "禁用" }}</button>
+            </form>
+            <form method="post" action="{{ url_for('delete_user', username=username) }}" style="display:inline"
+                  onsubmit="return confirm('确定永久删除用户 {{ username }}？\\n该用户的流量统计会保留，但账号将从 3proxy 移除。')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="next" value="{{ url_for('index') }}">
+                <button class="btn bad" type="submit">删除用户</button>
+            </form>
+        </div>
         <form class="form-grid" method="post" action="{{ url_for('change_password', username=username) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next" value="/users/{{ username }}">
             <div class="field">
                 <label>新密码</label>
                 <input class="input" name="password" type="password" minlength="4" maxlength="64"
                        autocomplete="new-password" placeholder="至少 4 位" required>
             </div>
-            <div></div>
-            <button class="btn primary" type="submit">保存密码</button>
+            <div class="field">
+                <label>保存</label>
+                <button class="btn primary" type="submit">保存密码</button>
+            </div>
         </form>
     </div>
 </section>
@@ -1119,8 +1484,18 @@ def user_detail(username):
     return render_template_string(
         template,
         username=username,
+        enabled=bool(user["enabled"]),
         days=days,
+        hours=hours,
+        peak_hour=peak_hour,
+        sites=sites,
+        ips=ips,
         recent=recent,
+        today_total=today_total,
+        month_total=month_total,
+        total_download=total_download,
+        total_upload=total_upload,
+        share=share,
         csrf_token=CSRF_TOKEN,
         timezone=TZ_NAME,
     )
@@ -1128,4 +1503,5 @@ def user_detail(username):
 
 init_db()
 import_users_from_config()
+upgrade_logformat()
 parse_log_incrementally()
