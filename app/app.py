@@ -99,7 +99,7 @@ a{color:inherit}button,input{font:inherit;color:inherit}
 table{width:100%;border-collapse:collapse}
 th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
 th{font-size:11.5px;color:var(--faint);font-weight:600;background:var(--surface)}
-td.num{text-align:right}
+td.num,th.num{text-align:right}
 tr:last-child td{border-bottom:0}
 tr:hover td{background:var(--surface-2)}
 tr.disabled td{opacity:.55}
@@ -111,6 +111,20 @@ tr.disabled td{opacity:.55}
 .status-dot.on{color:var(--accent)}.status-dot.off{color:var(--faint)}.status-dot.ban{color:var(--bad)}
 .ops{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 .ops .btn{padding:4px 9px;font-size:12px}
+.ops-cell{text-align:right;white-space:nowrap}
+.menu-btn{width:28px;height:28px;border-radius:4px;border:1px solid transparent;background:transparent;
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;color:var(--muted)}
+.menu-btn:hover,.menu-btn.open{background:var(--surface-2);border-color:var(--line);color:var(--text)}
+.menu{display:none;position:fixed;min-width:172px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:4px;z-index:80;
+  max-height:calc(100vh - 16px);overflow:auto}
+.menu.open{display:block}
+.menu form{display:block;margin:0}
+.menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;
+  border-radius:4px;font:inherit;cursor:pointer;color:var(--text);box-sizing:border-box}
+.menu button:hover{background:var(--surface-2)}
+.menu button.bad{color:var(--bad)}
+.menu .sep{height:1px;background:var(--line);margin:4px}
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 th.sortable:hover{color:var(--text)}
 th.sortable.active{color:var(--text)}
@@ -241,7 +255,11 @@ function closeModal(m){
   if(s)s.classList.remove("open");
 }
 document.addEventListener("keydown",function(e){
-  if(e.key==="Escape"){var s=document.querySelector(".modal-scrim.open");if(s)s.classList.remove("open");}
+  if(e.key==="Escape"){
+    var s=document.querySelector(".modal-scrim.open");
+    if(s)s.classList.remove("open");
+    closeMenus();
+  }
 });
 function toast(msg){
   var t=document.getElementById("toast");
@@ -267,6 +285,28 @@ function copyProxy(name){
     .then(function(t){copyText(t,"已复制代理连接");})
     .catch(function(){toast("获取代理连接失败");});
 }
+function closeMenus(){
+  Array.prototype.forEach.call(document.querySelectorAll(".menu.open"),function(m){m.classList.remove("open");});
+  Array.prototype.forEach.call(document.querySelectorAll(".menu-btn.open"),function(b){b.classList.remove("open");});
+}
+function toggleMenu(btn){
+  var menu=btn.nextElementSibling;
+  if(!menu)return;
+  var wasOpen=menu.classList.contains("open");
+  closeMenus();
+  if(wasOpen)return;
+  menu.classList.add("open");
+  btn.classList.add("open");
+  var r=btn.getBoundingClientRect();
+  var top=r.bottom+4;
+  if(top+menu.offsetHeight>window.innerHeight-8){top=Math.max(8,r.top-4-menu.offsetHeight);}
+  menu.style.top=top+"px";
+  menu.style.left=Math.max(8,Math.min(r.right-menu.offsetWidth,window.innerWidth-menu.offsetWidth-8))+"px";
+}
+document.addEventListener("click",function(e){
+  if(!e.target.closest||(!e.target.closest(".menu")&&!e.target.closest(".menu-btn"))){closeMenus();}
+});
+window.addEventListener("scroll",closeMenus,true);
 </script>
 """
 
@@ -275,6 +315,7 @@ HEADER = """
   <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
   <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="6" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="18" r="1.6"/></symbol>
   <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M22 12h-4l-3 7L9 5l-3 7H2"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></symbol>
@@ -848,12 +889,12 @@ def index():
             <tr>
                 <th class="sortable" onclick="sortUsers(this)">用户</th>
                 <th>状态</th>
-                <th class="sortable" onclick="sortUsers(this)">今日</th>
-                <th class="sortable" onclick="sortUsers(this)">本月</th>
-                <th class="sortable" onclick="sortUsers(this)">累计下载 / 上传</th>
+                <th class="num sortable" onclick="sortUsers(this)">今日</th>
+                <th class="num sortable" onclick="sortUsers(this)">本月</th>
+                <th class="num sortable" onclick="sortUsers(this)">累计下载 / 上传</th>
                 <th>最近 IP</th>
-                <th class="sortable" onclick="sortUsers(this)" title="近 24 小时内出现过的不同客户端 IP 数">24h IP ⓘ</th>
-                <th style="text-align:right">操作</th>
+                <th class="num sortable" onclick="sortUsers(this)" title="近 24 小时内出现过的不同客户端 IP 数">24h IP ⓘ</th>
+                <th class="num">操作</th>
             </tr>
             </thead>
             <tbody>
@@ -880,15 +921,23 @@ def index():
                 </td>
                 <td class="mono">{{ row.last_ip }}</td>
                 <td class="num" data-v="{{ row.ip_count }}">{{ row.ip_count }}</td>
-                <td>
-                    <div class="ops">
-                        <form method="post" action="{{ url_for('toggle_user', username=row.username) }}" style="display:inline">
+                <td class="ops-cell">
+                    <button class="menu-btn" type="button" aria-label="操作" onclick="toggleMenu(this)">
+                        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"/></svg>
+                    </button>
+                    <div class="menu">
+                        <button type="button" onclick="location.href='{{ url_for('user_detail', username=row.username) }}'">查看详情</button>
+                        <form method="post" action="{{ url_for('toggle_user', username=row.username) }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button class="btn" type="submit">{{ "启用" if not row.enabled else "禁用" }}</button>
+                            <button type="submit">{{ "启用" if not row.enabled else "禁用" }}用户</button>
                         </form>
-                        <a class="btn ghost" href="{{ url_for('user_detail', username=row.username) }}">详情</a>
-                        <button class="btn ghost" type="button" title="复制 socks5 代理连接"
-                                onclick="copyProxy('{{ row.username }}')">复制</button>
+                        <button type="button" onclick="copyProxy('{{ row.username }}')">复制代理连接</button>
+                        <div class="sep"></div>
+                        <form method="post" action="{{ url_for('delete_user', username=row.username) }}"
+                              onsubmit="return confirm('确定永久删除用户 {{ row.username }}？&#10;该用户的流量统计会保留，但账号将从 3proxy 移除。')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="bad" type="submit">删除用户</button>
+                        </form>
                     </div>
                 </td>
             </tr>
