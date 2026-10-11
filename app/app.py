@@ -140,6 +140,14 @@ html[data-theme="dark"] .modal-scrim{background:rgba(0,0,0,.55)}
 .toast{position:fixed;right:16px;bottom:16px;background:var(--text);color:var(--bg);padding:10px 14px;
   border-radius:var(--radius);opacity:0;pointer-events:none;transition:opacity .2s;z-index:100;max-width:320px;font-size:13px}
 .toast.show{opacity:1}
+.log-box{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:10px 12px;font-family:var(--mono);font-size:11.5px;line-height:1.65;
+  max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.act-list{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:auto;max-height:420px}
+.act-row{display:flex;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px;align-items:baseline}
+.act-row:last-child{border-bottom:0}
+.act-row:hover{background:var(--surface-2)}
+.act-row .t{color:var(--faint);font-family:var(--mono);white-space:nowrap;flex-shrink:0}
 .empty{padding:22px 12px;text-align:center;color:var(--faint);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
 .flash{margin:0 0 14px;padding:10px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--line)}
 .flash.success{background:var(--surface);color:var(--ok);border-color:var(--ok)}
@@ -317,10 +325,14 @@ HEADER = """
     </button>
     <button class="btn" type="button" onclick="toggleMenu(this,event)">菜单</button>
     <div class="menu">
-      <button type="button" onclick="location.href='{{ url_for('export_csv', h=1) }}'">下载日志 · 最近 1 小时</button>
-      <button type="button" onclick="location.href='{{ url_for('export_csv', h=24) }}'">下载日志 · 最近 24 小时</button>
-      <button type="button" onclick="location.href='{{ url_for('export_csv', h=72) }}'">下载日志 · 最近 3 天</button>
-      <button type="button" onclick="location.href='{{ url_for('export_csv') }}'">下载日志 · 全部</button>
+      <button type="button" onclick="location.href='{{ url_for('logs_page') }}#activity'">项目动态</button>
+      <button type="button" onclick="location.href='{{ url_for('logs_page') }}#runtime'">运行日志</button>
+      <button type="button" onclick="location.href='{{ url_for('logs_page') }}#traffic'">流量</button>
+      <div class="sep"></div>
+      <button type="button" onclick="location.href='{{ url_for('logs_download', h=1) }}'">下载连接日志 · 最近 1 小时</button>
+      <button type="button" onclick="location.href='{{ url_for('logs_download', h=24) }}'">下载连接日志 · 最近 24 小时</button>
+      <button type="button" onclick="location.href='{{ url_for('logs_download', h=72) }}'">下载连接日志 · 最近 3 天</button>
+      <button type="button" onclick="location.href='{{ url_for('logs_download') }}'">下载连接日志 · 全部</button>
     </div>
   </div>
 </header>
@@ -1027,6 +1039,7 @@ def add_user():
 
     try:
         rebuild_users_config()
+        log_activity(f"创建用户 {username}")
         flash(f"用户 {username} 创建成功。", "success")
     except Exception as exc:
         with db_connection() as conn:
@@ -1064,6 +1077,7 @@ def toggle_user(username):
     try:
         rebuild_users_config()
         action = "启用" if new_state else "禁用"
+        log_activity(f"{action}用户 {username}")
         flash(f"用户 {username} 已{action}。", "success")
     except Exception as exc:
         with db_connection() as conn:
@@ -1113,6 +1127,7 @@ def change_password(username):
 
     try:
         rebuild_users_config()
+        log_activity(f"修改用户 {username} 的密码")
         flash(f"用户 {username} 的密码已修改。", "success")
     except Exception as exc:
         with db_connection() as conn:
@@ -1147,6 +1162,7 @@ def delete_user(username):
 
     try:
         rebuild_users_config()
+        log_activity(f"删除用户 {username}")
         flash(f"用户 {username} 已删除。", "success")
     except Exception as exc:
         with db_connection() as conn:
@@ -1176,6 +1192,62 @@ def socks_port():
 
     match = re.search(r"socks\s+-p(\d+)", text)
     return match.group(1) if match else "1234"
+
+
+ACTIVITY_LOG = APP_DIR / "activity.log"
+
+
+def log_activity(text):
+    # 项目动态：面板操作与 install.sh 系统事件共用此文件
+    try:
+        APP_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+        with open(ACTIVITY_LOG, "a", encoding="utf-8") as file:
+            file.write(f"{stamp}  {text}\n")
+    except OSError:
+        pass
+
+
+def read_activity(limit=200):
+    try:
+        with open(ACTIVITY_LOG, encoding="utf-8", errors="ignore") as file:
+            return file.read().splitlines()[-limit:]
+    except OSError:
+        return []
+
+
+def service_log(unit, lines=60):
+    try:
+        result = subprocess.run(
+            [
+                "journalctl",
+                "-u",
+                unit,
+                "-n",
+                str(lines),
+                "--no-pager",
+                "-o",
+                "short-iso",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip().splitlines()
+    except Exception:
+        return []
+
+
+def tail_log(path, lines=200):
+    try:
+        with open(path, "rb") as file:
+            file.seek(0, 2)
+            size = file.tell()
+            file.seek(max(0, size - 256 * 1024))
+            data = file.read().decode("utf-8", errors="ignore")
+        return data.splitlines()[-lines:]
+    except OSError:
+        return []
 
 
 @app.route("/users/<username>/proxy")
@@ -1276,6 +1348,339 @@ def export_user_csv(username):
         abort(404)
 
     return export_csv_response(username)
+
+
+@app.route("/logs/download")
+@login_required
+def logs_download():
+    # 系统级连接日志下载（3proxy access.log 原始行，按时间窗过滤）
+    hours = request.args.get("h", type=int)
+    cutoff = (
+        int(datetime.now(TZ).timestamp()) - int(hours) * 3600 if hours else None
+    )
+    lines = []
+
+    try:
+        with LOG_PATH.open("rb") as file:
+            for raw in file:
+                line = raw.decode("utf-8", errors="ignore").rstrip()
+                if cutoff is not None:
+                    match = re.match(r"^L(\d+)", line)
+                    if not match or int(match.group(1)) < cutoff:
+                        continue
+                lines.append(line)
+    except OSError:
+        pass
+
+    stamp = datetime.now(TZ).strftime("%Y%m%d")
+    window = f"{hours}h" if hours else "all"
+    filename = f"3proxy-log-{window}-{stamp}.txt"
+
+    return Response(
+        "\n".join(lines) + "\n",
+        mimetype="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        },
+    )
+
+
+@app.route("/logs")
+@login_required
+def logs_page():
+    # 系统级日志中心：项目动态 / 运行日志 / 流量
+    parse_log_incrementally()
+    _, day_start, month_start = time_boundaries()
+
+    with db_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users ORDER BY username"
+        ).fetchall()
+
+        totals = conn.execute(
+            """
+            SELECT COALESCE(SUM(download), 0) AS dl,
+                   COALESCE(SUM(upload), 0) AS ul,
+                   COALESCE(SUM(CASE WHEN ts >= ? THEN download + upload ELSE 0 END), 0) AS today,
+                   COALESCE(SUM(CASE WHEN ts >= ? THEN download + upload ELSE 0 END), 0) AS month
+            FROM traffic
+            """,
+            (day_start, month_start),
+        ).fetchone()
+
+        now_dt = datetime.now(TZ)
+        cutoff30 = int(
+            (now_dt - timedelta(days=29))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .timestamp()
+        )
+
+        day_rows = conn.execute(
+            """
+            SELECT date(ts, 'unixepoch', 'localtime') AS day,
+                   COALESCE(SUM(download), 0) AS dl,
+                   COALESCE(SUM(upload), 0) AS ul
+            FROM traffic WHERE ts >= ?
+            GROUP BY day
+            """,
+            (cutoff30,),
+        ).fetchall()
+
+        hour_rows = conn.execute(
+            """
+            SELECT strftime('%H', ts, 'unixepoch', 'localtime') AS hour,
+                   COALESCE(SUM(download + upload), 0) AS total
+            FROM traffic WHERE ts >= ?
+            GROUP BY hour
+            """,
+            (cutoff30,),
+        ).fetchall()
+
+        user_rows = conn.execute(
+            """
+            SELECT username,
+                   COALESCE(SUM(CASE WHEN ts >= ? THEN download + upload ELSE 0 END), 0) AS today,
+                   COALESCE(SUM(CASE WHEN ts >= ? THEN download + upload ELSE 0 END), 0) AS month,
+                   COALESCE(SUM(download + upload), 0) AS total
+            FROM traffic
+            GROUP BY username
+            ORDER BY total DESC
+            """,
+            (day_start, month_start),
+        ).fetchall()
+
+    day_map = {
+        row["day"]: (int(row["dl"] or 0), int(row["ul"] or 0))
+        for row in day_rows
+    }
+    days = []
+
+    for offset in range(29, -1, -1):
+        day_key = (now_dt.date() - timedelta(days=offset)).strftime(
+            "%Y-%m-%d"
+        )
+        dl, ul = day_map.get(day_key, (0, 0))
+        days.append(
+            {"date": day_key, "download": dl, "upload": ul, "total": dl + ul}
+        )
+
+    day_max = max((day["total"] for day in days), default=1) or 1
+
+    for day in days:
+        day["pct_total"] = (
+            max(2, round(day["total"] / day_max * 100)) if day["total"] else 0
+        )
+        if day["total"]:
+            day["pct_down"] = round(day["download"] / day["total"] * 100)
+            day["pct_up"] = 100 - day["pct_down"]
+        else:
+            day["pct_down"] = day["pct_up"] = 0
+
+    hour_map = {
+        int(row["hour"]): int(row["total"] or 0) for row in hour_rows
+    }
+    hours = [
+        {"hour": hour, "total": hour_map.get(hour, 0)} for hour in range(24)
+    ]
+    hour_max = max((hour["total"] for hour in hours), default=1) or 1
+    peak_hour = max(hours, key=lambda hour: hour["total"])
+
+    for hour in hours:
+        hour["pct"] = (
+            max(2, round(hour["total"] / hour_max * 100))
+            if hour["total"]
+            else 0
+        )
+        hour["is_peak"] = (
+            hour["hour"] == peak_hour["hour"] and hour["total"] > 0
+        )
+
+    activity_lines = read_activity()
+    svc_lines = (
+        ["— 3proxy —"]
+        + service_log("3proxy")
+        + ["", "— 面板 —"]
+        + service_log("3proxy-dashboard")
+    )
+    conn_lines = tail_log(LOG_PATH)
+
+    template = """
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>日志与动态 · 3proxy 管理面板</title>
+""" + BASE_STYLE + """
+</head>
+<body>
+<div class="shell">
+""" + HEADER + """
+<main class="main">
+
+<section class="section" id="activity" style="margin-top:0">
+    <div class="section-h">
+        <div>
+            <h2><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-activity"/></svg>项目动态</h2>
+            <p class="hint">安装、更新与全部管理操作的变更记录。</p>
+        </div>
+    </div>
+    {% if activity_lines %}
+    <div class="act-list">
+        {% for line in activity_lines|reverse %}
+        {% set parts = line.split('  ', 1) %}
+        <div class="act-row">
+            <span class="t">{{ parts[0] }}</span>
+            <span>{{ parts[1] if parts|length > 1 else line }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+        <div class="empty">暂无动态记录。</div>
+    {% endif %}
+</section>
+
+<section class="section" id="runtime">
+    <div class="section-h">
+        <div>
+            <h2>运行日志</h2>
+            <p class="hint">服务运行日志与最近连接日志。</p>
+        </div>
+    </div>
+    <div class="detail-grid">
+        <div>
+            <p class="hint" style="margin:0 0 8px">服务日志（journalctl）</p>
+            <div class="log-box">{{ svc_lines|join("\\n") }}</div>
+        </div>
+        <div>
+            <div class="section-h" style="margin:0 0 8px">
+                <p class="hint" style="margin:0">连接日志（access.log 最近 200 行）</p>
+                <div class="ops">
+                    <button class="btn ghost" type="button" onclick="location.href='{{ url_for('logs_download', h=1) }}'">1h</button>
+                    <button class="btn ghost" type="button" onclick="location.href='{{ url_for('logs_download', h=24) }}'">24h</button>
+                    <button class="btn ghost" type="button" onclick="location.href='{{ url_for('logs_download', h=72) }}'">3日</button>
+                    <button class="btn ghost" type="button" onclick="location.href='{{ url_for('logs_download') }}'">全部</button>
+                </div>
+            </div>
+            <div class="log-box">{{ conn_lines|join("\\n") or "暂无连接日志。" }}</div>
+        </div>
+    </div>
+</section>
+
+<section class="section" id="traffic">
+    <div class="section-h">
+        <div>
+            <h2><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg>流量</h2>
+            <p class="hint">整机流量概览（下载 + 上传）。</p>
+        </div>
+    </div>
+    <div class="kpis">
+        <div class="metric">
+            <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-activity"/></svg>今日流量</div>
+            <div class="value">{{ total_today|bytes }}</div>
+            <div class="extra">时区 {{ timezone }}</div>
+        </div>
+        <div class="metric">
+            <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg>本月流量</div>
+            <div class="value">{{ total_month|bytes }}</div>
+            <div class="extra">自然月合计</div>
+        </div>
+        <div class="metric">
+            <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-server"/></svg>累计流量</div>
+            <div class="value">{{ total_all|bytes }}</div>
+            <div class="extra">↓ {{ total_download|bytes }} · ↑ {{ total_upload|bytes }}</div>
+        </div>
+        <div class="metric">
+            <div class="label"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-users"/></svg>峰值时段</div>
+            <div class="value mono">{{ "%02d:00"|format(peak_hour.hour) }}</div>
+            <div class="extra">{% if peak_hour.total %}近 30 天最忙小时 · {{ peak_hour.total|bytes }}{% else %}近 30 天暂无流量{% endif %}</div>
+        </div>
+    </div>
+
+    <div class="detail-grid">
+        <div class="form-body">
+            <p class="hint" style="margin:0 0 10px">近 30 天趋势（下下载 · 上上传）</p>
+            <div class="day-cols">
+                {% for day in days %}
+                <div class="day-col" title="{{ day.date }}  ↓ {{ day.download|bytes }}  ↑ {{ day.upload|bytes }}">
+                    <div class="amt">{{ day.total|bytes }}</div>
+                    {% if day.pct_total %}
+                    <div class="stack-bar" style="height:{{ day.pct_total }}%">
+                        <i class="up" style="height:{{ day.pct_up }}%"></i>
+                        <i class="down" style="height:{{ day.pct_down }}%"></i>
+                    </div>
+                    {% else %}
+                    <div class="stack-bar" style="height:2px"></div>
+                    {% endif %}
+                    <div class="lbl">{% if loop.index0 % 6 == 0 %}{{ day.date[5:] }}{% endif %}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="form-body">
+            <p class="hint" style="margin:0 0 10px">24 小时分布（近 30 天）</p>
+            <div class="hour-cols">
+                {% for hour in hours %}
+                <div class="hour-col {{ 'peak' if hour.is_peak else '' }}"
+                     title="{{ "%02d:00"|format(hour.hour) }} · {{ hour.total|bytes }}">
+                    <div class="bar" style="height:{{ hour.pct }}%"></div>
+                    <div class="lbl">{% if hour.hour % 3 == 0 %}{{ hour.hour }}{% endif %}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:12px">
+        <table>
+            <thead>
+            <tr>
+                <th>用户</th>
+                <th class="num">今日</th>
+                <th class="num">本月</th>
+                <th class="num">累计</th>
+                <th class="num">操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for row in user_rows %}
+            <tr>
+                <td><a class="user-name" href="{{ url_for('user_detail', username=row.username) }}">{{ row.username }}</a></td>
+                <td class="num">{{ row.today|bytes }}</td>
+                <td class="num">{{ row.month|bytes }}</td>
+                <td class="num">{{ row.total|bytes }}</td>
+                <td class="num"><a class="btn ghost" href="{{ url_for('user_detail', username=row.username) }}">分析</a></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<footer class="footer">3proxy Panel · 私人管理</footer>
+</main>
+</div>
+</body>
+</html>
+"""
+
+    return render_template_string(
+        template,
+        activity_lines=activity_lines,
+        svc_lines=svc_lines,
+        conn_lines=conn_lines,
+        days=days,
+        hours=hours,
+        peak_hour=peak_hour,
+        user_rows=user_rows,
+        total_today=int(totals["today"] or 0),
+        total_month=int(totals["month"] or 0),
+        total_download=int(totals["dl"] or 0),
+        total_upload=int(totals["ul"] or 0),
+        total_all=int(totals["dl"] or 0) + int(totals["ul"] or 0),
+        timezone=TZ_NAME,
+    )
 
 
 @app.route("/users/<username>")

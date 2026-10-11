@@ -226,6 +226,12 @@ test_https() {
   fi
 }
 
+log_activity() {
+  # 项目动态：系统事件与面板操作共用同一份记录（面板「项目动态」可见）
+  mkdir -p /opt/3proxy-dashboard 2>/dev/null || true
+  echo "$(date '+%Y-%m-%d %H:%M:%S')  $*" >>/opt/3proxy-dashboard/activity.log 2>/dev/null || true
+}
+
 show_ports() {
   local s_port
   s_port="$(socks_port)"
@@ -246,16 +252,19 @@ show_ports() {
 
 do_start() {
   systemctl start 3proxy 3proxy-dashboard 2>/dev/null || true
+  log_activity "系统 启动服务"
   ok "已启动 3proxy 与管理面板"
 }
 
 do_stop() {
   systemctl stop 3proxy 3proxy-dashboard 2>/dev/null || true
+  log_activity "系统 停止服务"
   ok "已临时停止 3proxy 与管理面板（配置与数据未动，3p start 恢复；Caddy 未停，其他项目不受影响）"
 }
 
 do_restart() {
   systemctl restart 3proxy 3proxy-dashboard 2>/dev/null || true
+  log_activity "系统 重启服务"
   ok "已重启 3proxy 与管理面板"
 }
 
@@ -276,6 +285,7 @@ do_install() {
   echo "[4/4] 验证"
   domain="$(panel_domain)"
   test_https "$domain"
+  log_activity "系统 安装完成（${REF}）"
   print_summary all
 }
 
@@ -319,6 +329,7 @@ do_update() {
   fi
   install_cli
   save_update_hash
+  log_activity "系统 更新 ${sums_old:0:8} → ${sums_new:0:8}${commit:+（${REF}@${commit}）}"
   ok "更新完成（${sums_new:0:12}）；3proxy 本体未动"
   for s in 3proxy 3proxy-dashboard; do
     if systemctl is-active --quiet "$s" 2>/dev/null; then
@@ -398,6 +409,7 @@ do_cert() {
   systemctl restart caddy
   sleep 2
   if systemctl is-active --quiet caddy; then
+    log_activity "系统 重新申请 HTTPS 证书"
     ok "Caddy 已重启，证书申请通常 1 分钟内完成"
   else
     err "Caddy 启动失败，查看日志： journalctl -u caddy -n 30"
