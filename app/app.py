@@ -594,7 +594,8 @@ def parse_log_incrementally():
 def authorized():
     auth = request.authorization
 
-    if not auth:
+    # ADMIN_PASS 未配置(为空)时必须拒绝,否则空密码会通过比较直接登录
+    if not ADMIN_PASS or not auth:
         return False
 
     return (
