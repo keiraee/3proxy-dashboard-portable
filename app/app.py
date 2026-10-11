@@ -108,6 +108,11 @@ tr.disabled td{opacity:.55}
 .status-dot.on{color:var(--accent)}.status-dot.off{color:var(--faint)}.status-dot.ban{color:var(--bad)}
 .ops{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 .ops .btn{padding:4px 9px;font-size:12px}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--text)}
+th.sortable.active{color:var(--text)}
+th.sortable.active::after{content:attr(data-dir);margin-left:4px;font-size:10px}
+.search{max-width:220px}
 .empty{padding:22px 12px;text-align:center;color:var(--faint);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
 .flash{margin:0 0 14px;padding:10px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--line)}
 .flash.success{background:var(--surface);color:var(--ok);border-color:var(--ok)}
@@ -176,6 +181,40 @@ document.addEventListener("submit",function(e){
   var b=e.target.querySelector("button[type=submit]");
   if(b&&!b.disabled){b.dataset.label=b.textContent;b.disabled=true;b.textContent="处理中…";}
 });
+function filterUsers(){
+  var input=document.getElementById("userFilter");
+  var table=document.getElementById("userTable");
+  if(!input||!table)return;
+  var q=input.value.toLowerCase();
+  var shown=0;
+  Array.prototype.forEach.call(table.tBodies[0].rows,function(tr){
+    var hit=(tr.dataset.name||"").toLowerCase().indexOf(q)>=0;
+    tr.style.display=hit?"":"none";
+    if(hit)shown++;
+  });
+  var empty=document.getElementById("filterEmpty");
+  if(empty)empty.style.display=shown?"none":"block";
+}
+function sortUsers(th){
+  var table=document.getElementById("userTable");
+  if(!table)return;
+  var idx=Array.prototype.indexOf.call(th.parentNode.children,th);
+  var dir=th.dataset.dir==="asc"?-1:1;
+  Array.prototype.forEach.call(th.parentNode.children,function(h){h.classList.remove("active");h.removeAttribute("data-dir");});
+  th.classList.add("active");
+  th.dataset.dir=dir===1?"asc":"desc";
+  th.setAttribute("data-dir",dir===1?"↑":"↓");
+  var rows=Array.prototype.slice.call(table.tBodies[0].rows);
+  rows.sort(function(a,b){
+    var ca=a.cells[idx],cb=b.cells[idx];
+    var va=ca.dataset.v,vb=cb.dataset.v;
+    if(va!==undefined&&vb!==undefined){return (parseFloat(va)-parseFloat(vb))*dir;}
+    var sa=(ca.dataset.s!==undefined?ca.dataset.s:ca.textContent).trim();
+    var sb=(cb.dataset.s!==undefined?cb.dataset.s:cb.textContent).trim();
+    return (sa<sb?-1:sa>sb?1:0)*dir;
+  });
+  rows.forEach(function(r){table.tBodies[0].appendChild(r);});
+}
 </script>
 """
 
@@ -742,30 +781,33 @@ def index():
     <div class="section-h">
         <div>
             <h2><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-users"/></svg>用户列表</h2>
-            <p class="hint">在线状态根据最近 3 分钟内的连接活动判断；点击用户名查看明细。</p>
+            <p class="hint">在线状态根据最近 3 分钟内的连接活动判断；点击用户名查看流量分析。</p>
         </div>
+        {% if rows %}
+        <input class="input search" id="userFilter" placeholder="搜索用户名…" oninput="filterUsers()">
+        {% endif %}
     </div>
     {% if rows %}
     <div class="table-wrap">
-        <table>
+        <table id="userTable">
             <thead>
             <tr>
-                <th>用户</th>
+                <th class="sortable" onclick="sortUsers(this)">用户</th>
                 <th>状态</th>
-                <th>今日</th>
-                <th>本月</th>
-                <th>累计下载 / 上传</th>
+                <th class="sortable" onclick="sortUsers(this)">今日</th>
+                <th class="sortable" onclick="sortUsers(this)">本月</th>
+                <th class="sortable" onclick="sortUsers(this)">累计下载 / 上传</th>
                 <th>最近 IP</th>
-                <th title="近 24 小时内出现过的不同客户端 IP 数">24h IP ⓘ</th>
+                <th class="sortable" onclick="sortUsers(this)" title="近 24 小时内出现过的不同客户端 IP 数">24h IP ⓘ</th>
                 <th style="text-align:right">操作</th>
             </tr>
             </thead>
             <tbody>
             {% for row in rows %}
-            <tr class="{{ 'disabled' if not row.enabled else '' }}">
-                <td>
+            <tr class="{{ 'disabled' if not row.enabled else '' }}" data-name="{{ row.username }}">
+                <td data-s="{{ row.username }}">
                     <a class="user-name" href="{{ url_for('user_detail', username=row.username) }}">{{ row.username }}</a>
-                    <div class="user-note">最近目标 · {{ row.last_target }}</div>
+                    <div class="user-note" title="最近目标 · {{ row.last_target }}">最近目标 · {{ row.last_target }}</div>
                 </td>
                 <td>
                     {% if not row.enabled %}
@@ -776,14 +818,14 @@ def index():
                         <span class="status-dot off">离线</span>
                     {% endif %}
                 </td>
-                <td class="num">{{ row.today_total|bytes }}</td>
-                <td class="num">{{ row.month_total|bytes }}</td>
-                <td class="num">
+                <td class="num" data-v="{{ row.today_total }}">{{ row.today_total|bytes }}</td>
+                <td class="num" data-v="{{ row.month_total }}">{{ row.month_total|bytes }}</td>
+                <td class="num" data-v="{{ row.total_download + row.total_upload }}">
                     ↓ {{ row.total_download|bytes }}
                     <div class="user-note">↑ {{ row.total_upload|bytes }}</div>
                 </td>
                 <td class="mono">{{ row.last_ip }}</td>
-                <td class="num">{{ row.ip_count }}</td>
+                <td class="num" data-v="{{ row.ip_count }}">{{ row.ip_count }}</td>
                 <td>
                     <div class="ops">
                         <form method="post" action="{{ url_for('toggle_user', username=row.username) }}" style="display:inline">
@@ -801,6 +843,7 @@ def index():
     {% else %}
         <div class="empty">暂未配置任何用户。</div>
     {% endif %}
+    <div class="empty" id="filterEmpty" style="display:none">没有匹配的用户。</div>
 </section>
 
 <section class="section" id="add-user">
