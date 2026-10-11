@@ -92,6 +92,8 @@ curl --socks5 用户名:密码@服务器IP:端口 https://ifconfig.me
 | `3p caddy` | 追加 Caddy 反代（不动已有配置）并申请 HTTPS |
 | `3p cert` | 重新申请 HTTPS 证书（首次失败后重试） |
 | `3p status` | 查看状态、端口、面板哈希与账号 |
+| `3p start` | 启动服务 |
+| `3p stop` | 临时停止 3proxy + 面板（配置数据不动，Caddy 不停） |
 | `3p restart` | 重启服务 |
 | `3p uninstall` | 完全卸载（先探测列出组件清单 → 确认 → 服务/配置/数据全清，可直接重装） |
 

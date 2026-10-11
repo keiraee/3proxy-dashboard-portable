@@ -8,8 +8,10 @@
 #   sudo bash install.sh caddy        # 追加 Caddy 反代（不动已有配置）并申请 HTTPS
 #   sudo bash install.sh cert         # 重新申请 HTTPS 证书（首次失败后手动重试）
 #   sudo bash install.sh status       # 查看状态与账号
+#   sudo bash install.sh start        # 启动服务
+#   sudo bash install.sh stop         # 临时停止服务（3proxy + 面板）
 #   sudo bash install.sh restart      # 重启服务
-#   sudo bash install.sh uninstall    # 卸载
+#   sudo bash install.sh uninstall    # 完全卸载
 #
 # 安装完成后终端输入 3p 即可随时打开管理菜单（等同 bash install.sh）
 #
@@ -203,6 +205,16 @@ show_ports() {
     firewall-cmd --reload >/dev/null 2>&1
     ok "本机 firewalld 已自动放行 80/443/${s_port}（云安全组仍需控制台操作）"
   fi
+}
+
+do_start() {
+  systemctl start 3proxy 3proxy-dashboard 2>/dev/null || true
+  ok "已启动 3proxy 与管理面板"
+}
+
+do_stop() {
+  systemctl stop 3proxy 3proxy-dashboard 2>/dev/null || true
+  ok "已临时停止 3proxy 与管理面板（配置与数据未动，3p start 恢复；Caddy 未停，其他项目不受影响）"
 }
 
 do_restart() {
@@ -420,12 +432,14 @@ menu() {
   echo " 4. 更新到最新版（main 分支，SHA256 校验）"
   echo " 5. 配置 Caddy 反代（追加式，自动申请 HTTPS）"
   echo " 6. 重新申请 HTTPS 证书（首次失败后重试）"
-  echo " 7. 重启服务"
-  echo " 8. 完全卸载（服务、配置、数据全清，可直接重装）"
-  echo " 9. 查看状态与账号"
+  echo " 7. 启动服务"
+  echo " 8. 停止服务（临时停止 3proxy + 面板，配置数据不动）"
+  echo " 9. 重启服务"
+  echo "10. 完全卸载（服务、配置、数据全清，可直接重装）"
+  echo "11. 查看状态与账号"
   echo " 0. 退出"
   echo
-  read -r -p "请选择 [0-9]: " opt || opt=0
+  read -r -p "请选择 [0-11]: " opt || opt=0
   case "$opt" in
     1) do_install ;;
     2) prepare_package; bash "$PKG_DIR/install/install-3proxy.sh"; install_cli; print_summary socks ;;
@@ -433,9 +447,11 @@ menu() {
     4) do_update ;;
     5) do_caddy ;;
     6) do_cert ;;
-    7) do_restart ;;
-    8) do_uninstall ;;
-    9) do_status ;;
+    7) do_start ;;
+    8) do_stop ;;
+    9) do_restart ;;
+    10) do_uninstall ;;
+    11) do_status ;;
     0) exit 0 ;;
     *) err "无效选项"; exit 1 ;;
   esac
@@ -453,6 +469,8 @@ case "${1:-menu}" in
   cert)         do_cert ;;
   uninstall)    do_uninstall ;;
   status)       do_status ;;
+  start)        do_start ;;
+  stop)         do_stop ;;
   restart)      do_restart ;;
   menu|*)       menu ;;
 esac
