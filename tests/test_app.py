@@ -162,6 +162,38 @@ class TestPagesSmoke(AppTestCase):
         self.assertIn("alice", body)
         self.assertIn("example.com", body)
 
+    def test_csv_export_exact_format(self):
+        """锁定 CSV 逐字节格式（BOM + 表头 + 行），改造为流式输出后必须完全一致。"""
+        ts = self.seed_user_and_traffic()
+        client = self.mod.app.test_client()
+        body = client.get("/users/alice/export.csv", headers=self.auth).data.decode("utf-8")
+        when = datetime.fromtimestamp(ts, self.mod.TZ).strftime("%Y-%m-%d %H:%M:%S")
+        expected = (
+            "\ufeff"
+            "时间,用户名,客户端IP,目标,域名,下载(字节),上传(字节)\r\n"
+            f"{when},alice,1.2.3.4,93.184.216.34:443,example.com,100,200\r\n"
+        )
+        self.assertEqual(expected, body)
+
+    def test_csv_export_many_rows_streams_all(self):
+        """流式输出：行数完整，且按时间倒序（ORDER BY ts DESC）。"""
+        base = int(datetime.now(self.mod.TZ).timestamp()) - 1000
+        with self.mod.db_connection() as conn:
+            conn.execute("INSERT OR IGNORE INTO users(username, password, enabled, created_at)"
+                         " VALUES('alice', 'pw', 1, ?)", (base,))
+            for i in range(150):
+                conn.execute(
+                    "INSERT INTO traffic(event_key, ts, username, client_ip, target,"
+                    " download, upload, host) VALUES(?, ?, 'alice', '1.2.3.4', 't:1', ?, 0, 'h')",
+                    (f"bulk-{i}", base + i, i))
+        client = self.mod.app.test_client()
+        body = client.get("/users/alice/export.csv", headers=self.auth).data.decode("utf-8")
+        lines = body.lstrip("\ufeff").split("\r\n")
+        rows = [ln for ln in lines if ln]
+        self.assertEqual(151, len(rows), "1 行表头 + 150 行数据")
+        # 第一行数据应是 ts 最大的那条(download=149)
+        self.assertTrue(rows[1].endswith(",149,0"), rows[1])
+
     def test_index_contains_sort_toggle_state(self):
         """回归：排序方向状态必须与箭头属性分开，否则方向无法切换。"""
         client = self.mod.app.test_client()

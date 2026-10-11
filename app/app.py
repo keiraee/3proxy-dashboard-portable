@@ -1329,36 +1329,53 @@ def export_csv_response(username=None, hours=None):
 
     query += " ORDER BY ts DESC"
 
-    with db_connection() as conn:
-        rows = conn.execute(query, tuple(params)).fetchall()
-
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(
-        ["时间", "用户名", "客户端IP", "目标", "域名", "下载(字节)", "上传(字节)"]
-    )
-
-    for row in rows:
-        writer.writerow(
-            [
-                datetime.fromtimestamp(row["ts"], TZ).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
-                row["username"],
-                row["client_ip"],
-                row["target"],
-                row["host"] or "",
-                row["download"],
-                row["upload"],
-            ]
-        )
-
     stamp = datetime.now(TZ).strftime("%Y%m%d")
     window = f"{hours}h" if hours else "all"
     filename = f"3proxy-{username or 'all'}-{window}-{stamp}.csv"
 
+    # 先执行查询(出错时仍能正常返回 500),再逐行流式输出,
+    # 避免把整张流量表 fetchall 进内存(与连接日志下载同样的处理)
+    conn = db_connection()
+    try:
+        cursor = conn.execute(query, tuple(params))
+    except Exception:
+        conn.close()
+        raise
+
+    def generate():
+        try:
+            buffer = io.StringIO()
+            writer = csv.writer(buffer)
+
+            def row_text(values):
+                buffer.seek(0)
+                buffer.truncate(0)
+                writer.writerow(values)
+                return buffer.getvalue()
+
+            yield "\ufeff" + row_text(
+                ["时间", "用户名", "客户端IP", "目标", "域名", "下载(字节)", "上传(字节)"]
+            )
+
+            for row in cursor:
+                yield row_text(
+                    [
+                        datetime.fromtimestamp(row["ts"], TZ).strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
+                        row["username"],
+                        row["client_ip"],
+                        row["target"],
+                        row["host"] or "",
+                        row["download"],
+                        row["upload"],
+                    ]
+                )
+        finally:
+            conn.close()
+
     return Response(
-        "﻿" + buffer.getvalue(),
+        generate(),
         mimetype="text/csv",
         headers={
             "Content-Disposition": f"attachment; filename={filename}"
