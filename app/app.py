@@ -530,6 +530,9 @@ def parse_log_incrementally():
 
             with LOG_PATH.open("rb") as log_file:
                 log_file.seek(old_offset)
+                # 只有完整读到换行结尾的行,才把偏移量推进到该行之后;
+                # 半行(3proxy 尚未写完)不推进,留待下次补全后再解析
+                safe_offset = old_offset
 
                 while True:
                     line_offset = log_file.tell()
@@ -541,6 +544,9 @@ def parse_log_incrementally():
                     # 3proxy 仍在写入的半行(无换行结尾)留待下次解析,避免被截断入库
                     if not raw_line.endswith(b"\n"):
                         break
+
+                    # 这一行已完整读取,偏移量可安全推进(格式不匹配也可永久跳过)
+                    safe_offset = log_file.tell()
 
                     line = raw_line.decode("utf-8", errors="ignore").strip()
 
@@ -588,7 +594,7 @@ def parse_log_incrementally():
                     )
 
                 set_state(conn, "log_inode", inode)
-                set_state(conn, "log_offset", log_file.tell())
+                set_state(conn, "log_offset", safe_offset)
 
 
 def authorized():
