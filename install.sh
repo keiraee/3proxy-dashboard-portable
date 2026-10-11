@@ -146,11 +146,15 @@ print_summary() {
     echo "面板账号：${a_user}"
     echo "面板密码：${a_pass}"
   fi
-  if [[ "$mode" != "panel" && -n "$s_user" && "$s_user" != "__no_active_users__" ]]; then
+  if [[ "$mode" != "panel" ]]; then
     echo
-    echo "SOCKS5：${public_ip}:${s_port}"
-    echo "用户名：${s_user}"
-    echo "密码：  ${s_pass}"
+    if [[ -n "$s_user" && "$s_user" != "__no_active_users__" ]]; then
+      echo "SOCKS5：${public_ip}:${s_port}"
+      echo "用户名：${s_user}"
+      echo "密码：  ${s_pass}"
+    else
+      echo "SOCKS5：未创建初始用户（在面板创建用户后即可使用）"
+    fi
   fi
   echo
   echo "以后查看账号：3p status"
@@ -318,20 +322,47 @@ do_cert() {
 }
 
 do_uninstall() {
-  echo -e "${CYAN}===== 卸载 3proxy 与管理面板 =====${NC}"
+  echo -e "${CYAN}===== 完全卸载 3proxy 与管理面板 =====${NC}"
+  echo "探测已安装组件..."
+  local items=()
+  [[ -f /etc/systemd/system/3proxy.service ]] && items+=("3proxy 服务")
+  [[ -f /etc/systemd/system/3proxy-dashboard.service ]] && items+=("管理面板服务")
+  [[ -d /opt/3proxy ]] && items+=("/opt/3proxy（程序）")
+  [[ -d /opt/3proxy-dashboard ]] && items+=("/opt/3proxy-dashboard（面板与数据库）")
+  [[ -d /etc/3proxy ]] && items+=("/etc/3proxy（配置与用户数据）")
+  [[ -d /var/log/3proxy ]] && items+=("/var/log/3proxy（流量日志）")
+  [[ -f "$ENV_FILE" ]] && items+=("/etc/3proxy-dashboard.env（面板账号）")
+  [[ -f /usr/local/bin/3p ]] && items+=("3p 管理命令")
+  grep -qF "$CADDY_MARK" "$CADDYFILE" 2>/dev/null && items+=("Caddy 站点段（其他项目配置不动）")
+
+  if [[ ${#items[@]} -eq 0 ]]; then
+    ok "未检测到已安装组件，无需卸载"
+    return 0
+  fi
+
+  echo "检测到以下组件，确认后全部彻底删除："
+  local it
+  for it in "${items[@]}"; do echo "  - $it"; done
+  echo
+  read -r -p "确认完全卸载? [y/N]: " c || c=""
+  if [[ "$c" != [Yy] ]]; then
+    warn "已取消卸载"
+    return 0
+  fi
+
   systemctl stop 3proxy 3proxy-dashboard 2>/dev/null || true
   systemctl disable 3proxy 3proxy-dashboard 2>/dev/null || true
   rm -f /etc/systemd/system/3proxy.service /etc/systemd/system/3proxy-dashboard.service
   systemctl daemon-reload
-  rm -rf /opt/3proxy /opt/3proxy-dashboard "$ENV_FILE"
-  rm -f /usr/local/bin/3p
+  rm -rf /opt/3proxy /opt/3proxy-dashboard /etc/3proxy /var/log/3proxy
+  rm -f "$ENV_FILE" /usr/local/bin/3p
   # 只清理 3p 标记段，Caddyfile 其他项目配置原样保留
   if grep -qF "$CADDY_MARK" "$CADDYFILE" 2>/dev/null; then
     sed -i "/^${CADDY_MARK}\$/,/^# --- end 3proxy dashboard ---\$/d" "$CADDYFILE"
     systemctl reload caddy 2>/dev/null || true
-    ok "已从 Caddyfile 移除 3proxy 站点段（其他项目配置未动）"
+    ok "Caddy 站点段已移除（其他项目配置未动，Caddy 本身保留）"
   fi
-  ok "已卸载（保留 /etc/3proxy 配置与 /var/log/3proxy 日志，如需删除请手动 rm）"
+  ok "已完全卸载，可直接重装（系统依赖包如 curl/python3 保留，其他项目可能在用）"
 }
 
 do_status() {
@@ -372,6 +403,9 @@ do_status() {
     echo "SOCKS5：$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo 服务器IP):${s_port}"
     echo "用户名：${s_user}"
     echo "密码：  ${s_pass}"
+  else
+    echo
+    echo "SOCKS5：未创建初始用户（在面板创建用户后即可使用）"
   fi
   echo
   echo "云控制台防火墙请放行：TCP 80、TCP 443、TCP ${s_port}"
@@ -387,7 +421,7 @@ menu() {
   echo " 5. 配置 Caddy 反代（追加式，自动申请 HTTPS）"
   echo " 6. 重新申请 HTTPS 证书（首次失败后重试）"
   echo " 7. 重启服务"
-  echo " 8. 卸载全部"
+  echo " 8. 完全卸载（服务、配置、数据全清，可直接重装）"
   echo " 9. 查看状态与账号"
   echo " 0. 退出"
   echo
@@ -400,7 +434,7 @@ menu() {
     5) do_caddy ;;
     6) do_cert ;;
     7) do_restart ;;
-    8) read -r -p "确认卸载? [y/N]: " c; [[ "$c" == "y" || "$c" == "Y" ]] && do_uninstall ;;
+    8) do_uninstall ;;
     9) do_status ;;
     0) exit 0 ;;
     *) err "无效选项"; exit 1 ;;

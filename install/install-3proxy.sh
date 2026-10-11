@@ -101,8 +101,19 @@ if [[ ! -f "$CFG_FILE" ]]; then
     echo "端口 ${SOCKS_PORT} 已被占用，顺延..."
     SOCKS_PORT=$((SOCKS_PORT + 1))
   done
-  SOCKS_USER="u$(openssl rand -hex 4)"
-  SOCKS_PASS="$(openssl rand -base64 16 | tr -dc 'A-Za-z0-9' | head -c 16)"
+  # 初始用户：3proxy 的 auth strong 必须有 users 行才能完成认证（否则所有连接被拒绝）
+  echo "提示：3proxy 配置必须包含用户行（users），否则代理无法认证任何连接。"
+  echo "      可生成随机初始账号立即可用；生成后也可随时在面板删除/更换。"
+  read -r -p "生成随机初始 SOCKS 账号? [Y/n]: " mk_user || mk_user="y"
+  if [[ -z "$mk_user" || "$mk_user" == [Yy] ]]; then
+    SOCKS_USER="u$(openssl rand -hex 4)"
+    SOCKS_PASS="$(openssl rand -base64 16 | tr -dc 'A-Za-z0-9' | head -c 16)"
+  else
+    # 占位用户（与面板空用户时同策略）：配置合法但不可登录，等面板创建真实用户
+    SOCKS_USER="__no_active_users__"
+    SOCKS_PASS="$(openssl rand -hex 16)"
+    echo "已写入占位用户：请安装后在面板创建真实用户（占位用户可随时在面板删除）"
+  fi
   cat >"$CFG_FILE" <<EOF
 # 由 install-3proxy.sh 生成
 # 用户行 users <用户名>:CL:<密码> 通过管理面板维护
