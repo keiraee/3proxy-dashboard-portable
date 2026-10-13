@@ -21,7 +21,7 @@ set -euo pipefail
 
 # 更新轨道：Release（以发版为准，跟随最新 Release）。开发调试可 REPO_REF=main，或写入 env 的 UPDATE_REF
 ENV_FILE="/etc/3proxy-dashboard.env"
-RELEASE_FALLBACK="v1.0.0" # GitHub API 不可用时的兜底版本（发新版时同步更新）
+RELEASE_FALLBACK="v1.0.1" # GitHub API 不可用时的兜底版本（发新版时同步更新）
 REF="${REPO_REF:-}"
 if [[ -z "$REF" && -f "$ENV_FILE" ]]; then
   REF="$(grep -E '^UPDATE_REF=' "$ENV_FILE" | head -n 1 | cut -d= -f2- || true)"
