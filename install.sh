@@ -21,7 +21,7 @@ set -euo pipefail
 
 # 更新轨道：Release（以发版为准，跟随最新 Release）。开发调试可 REPO_REF=main，或写入 env 的 UPDATE_REF
 ENV_FILE="/etc/3proxy-dashboard.env"
-RELEASE_FALLBACK="v1.0.1" # GitHub API 不可用时的兜底版本（发新版时同步更新）
+RELEASE_FALLBACK="v1.0.2" # GitHub API 不可用时的兜底版本（发新版时同步更新）
 REF="${REPO_REF:-}"
 if [[ -z "$REF" && -f "$ENV_FILE" ]]; then
   REF="$(grep -E '^UPDATE_REF=' "$ENV_FILE" | head -n 1 | cut -d= -f2- || true)"
@@ -165,6 +165,19 @@ https_port() {
   local d
   d="$(panel_domain)"
   [[ "$d" == *:* ]] && echo "${d##*:}" || echo 443
+}
+
+pick_https_port() {
+  # 新站点的 HTTPS 端口：443 空闲或 caddy 自己在用则 443，否则从 8443 顺延
+  if port_busy 443 && ! port_is_caddy 443; then
+    local p=8443
+    while port_busy "$p"; do
+      p=$((p + 1))
+    done
+    echo "$p"
+  else
+    echo 443
+  fi
 }
 
 socks_port() {
@@ -388,8 +401,35 @@ do_caddy() {
   port="$(panel_port)"
   port="${port:-18080}"
 
+  # 证书验证走 80（HTTP-01），80 被其他程序占用则签发必败，提前说清楚
+  if port_busy 80 && ! port_is_caddy 80; then
+    err "80 端口被占用，申请证书需要用它验证域名，请先释放"
+    err "或改用现有 Web 服务器反代面板：reverse_proxy 127.0.0.1:${port}"
+    return 1
+  fi
+
   if grep -qF "$CADDY_MARK" "$CADDYFILE" 2>/dev/null; then
-    warn "Caddyfile 已包含 3proxy 配置，跳过追加"
+    # 已配置过但 443 被其他程序占用：把站点地址行改写到顺延端口（其余行不动）
+    if port_busy 443 && ! port_is_caddy 443; then
+      local reuse_domain mport msite
+      reuse_domain="$(panel_domain)"
+      reuse_domain="${reuse_domain%%:*}"
+      mport="$(pick_https_port)"
+      msite="https://${reuse_domain}:${mport}"
+      awk -v mark="$CADDY_MARK" -v site="${msite} {" '
+        $0 == mark { print; getline; print site; next } { print }' \
+        "$CADDYFILE" >"$CADDYFILE.3p-tmp"
+      if caddy validate --config "$CADDYFILE.3p-tmp" >/dev/null 2>&1; then
+        mv "$CADDYFILE.3p-tmp" "$CADDYFILE"
+        ok "已迁移站点 ${msite}（443 被占用，其他项目配置未动）"
+      else
+        rm -f "$CADDYFILE.3p-tmp"
+        err "迁移后配置校验失败，已保留原配置"
+        return 1
+      fi
+    else
+      warn "Caddyfile 已包含 3proxy 配置，跳过追加"
+    fi
   else
     local public_ip default_domain domain
     public_ip="$(curl -fsSL --connect-timeout 5 ifconfig.me 2>/dev/null || echo "")"
@@ -404,19 +444,10 @@ do_caddy() {
       return 1
     fi
 
-    # 证书验证走 80（HTTP-01），80 被其他程序占用则签发必败，提前说清楚
-    if port_busy 80 && ! port_is_caddy 80; then
-      err "80 端口被占用，申请证书需要用它验证域名，请先释放"
-      err "或改用现有 Web 服务器反代面板：reverse_proxy 127.0.0.1:${port}"
-      return 1
-    fi
     # 443 被其他程序占用时 HTTPS 端口顺延（8443 起，与面板端口同款让位逻辑）
-    local site="$domain" hport=443
-    if port_busy 443 && ! port_is_caddy 443; then
-      hport=8443
-      while port_busy "$hport"; do
-        hport=$((hport + 1))
-      done
+    local site="$domain" hport
+    hport="$(pick_https_port)"
+    if [[ "$hport" != 443 ]]; then
       site="https://${domain}:${hport}"
       warn "443 已被占用，Caddy HTTPS 改用端口 ${hport}（面板：https://${domain}:${hport}/）"
     fi

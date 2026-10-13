@@ -28,7 +28,7 @@ SOCKS5 代理（3proxy）+ 流量管理面板 的**一键部署包**。任意 De
 
 ## 一键安装
 
-**安装以发版为准**：安装与升级都跟随 [Releases](https://github.com/keiraee/3proxy-dashboard-portable/releases) 最新发布版（如 `v1.0.1`），不跟开发分支；所有组件下载后逐文件 SHA256 校验，损坏/篡改直接拒绝。
+**安装以发版为准**：安装与升级都跟随 [Releases](https://github.com/keiraee/3proxy-dashboard-portable/releases) 最新发布版（如 `v1.0.2`），不跟开发分支；所有组件下载后逐文件 SHA256 校验，损坏/篡改直接拒绝。
 
 ### 方式一：单行拉起（推荐，服务器上直接执行）
 
@@ -47,16 +47,16 @@ bash <(curl -fsSL https://github.com/keiraee/3proxy-dashboard-portable/releases/
 bash <(curl -fsSL https://github.com/keiraee/3proxy-dashboard-portable/releases/latest/download/install.sh) install
 ```
 
-锁版本安装（以 `v1.0.1` 为例，版本号看 [Releases](https://github.com/keiraee/3proxy-dashboard-portable/releases)）：
+锁版本安装（以 `v1.0.2` 为例，版本号看 [Releases](https://github.com/keiraee/3proxy-dashboard-portable/releases)）：
 
 ```bash
-REPO_REF=v1.0.1 bash <(curl -fsSL https://github.com/keiraee/3proxy-dashboard-portable/releases/latest/download/install.sh) install
+REPO_REF=v1.0.2 bash <(curl -fsSL https://github.com/keiraee/3proxy-dashboard-portable/releases/latest/download/install.sh) install
 ```
 
 ### 方式二：克隆后安装
 
 ```bash
-git clone --branch v1.0.1 --depth 1 https://github.com/keiraee/3proxy-dashboard-portable
+git clone --branch v1.0.2 --depth 1 https://github.com/keiraee/3proxy-dashboard-portable
 cd 3proxy-dashboard-portable
 sudo bash install.sh
 ```
@@ -157,7 +157,7 @@ curl --socks5 用户名:密码@服务器IP:端口 https://ifconfig.me
 - **哈希一致**：日志打印「上次哈希 / 本次哈希」后直接跳过，不重装不重启
 - **哈希变化**：下载组件 → 逐文件 SHA256 校验 → 落地重启，日志标明变化前后的哈希
 
-首次安装即记录基准哈希。锁定/切换版本：`UPDATE_REF=vX.Y.Z` 写入 `/etc/3proxy-dashboard.env`（或临时 `REPO_REF=v1.0.1 3p update`）；想跟开发版把值改成 `main`（哈希行附带提交短号 `main@abc1234`）。
+首次安装即记录基准哈希。锁定/切换版本：`UPDATE_REF=vX.Y.Z` 写入 `/etc/3proxy-dashboard.env`（或临时 `REPO_REF=v1.0.2 3p update`）；想跟开发版把值改成 `main`（哈希行附带提交短号 `main@abc1234`）。
 
 ### 哈希机制（每次更新必须带）
 
