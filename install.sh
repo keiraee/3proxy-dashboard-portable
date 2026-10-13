@@ -148,8 +148,23 @@ panel_port() {
 }
 
 panel_domain() {
-  # 已配置的反代域名（Caddyfile 标记段首行）
-  awk '/3proxy dashboard \(由 3p 追加\)/{getline; print $1; exit}' "$CADDYFILE" 2>/dev/null | tr -d '{} '
+  # 已配置的反代域名[:端口]（Caddyfile 标记段首行，去掉 https:// 前缀）
+  awk '/3proxy dashboard \(由 3p 追加\)/{getline; print $1; exit}' "$CADDYFILE" 2>/dev/null | sed 's|^https\?://||' | tr -d '{} '
+}
+
+port_busy() {
+  ss -tln 2>/dev/null | grep -q ":$1 "
+}
+
+port_is_caddy() {
+  ss -tlnp 2>/dev/null | grep ":$1 " | grep -q caddy
+}
+
+https_port() {
+  # 面板对外 HTTPS 端口：默认 443，被占用时 do_caddy 顺延（从站点地址解析）
+  local d
+  d="$(panel_domain)"
+  [[ "$d" == *:* ]] && echo "${d##*:}" || echo 443
 }
 
 socks_port() {
@@ -211,7 +226,7 @@ print_summary() {
   echo "  3p update       # 更新到最新发布版（Release 轨道，SHA256 校验）"
   echo "  3p cert         # 证书没签下来时重新申请"
   echo
-  echo "云控制台防火墙请放行：TCP 80、TCP 443、TCP ${s_port}"
+  echo "云控制台防火墙请放行：TCP 80、TCP $(https_port)、TCP ${s_port}"
   echo "============================================================"
 }
 
@@ -242,20 +257,21 @@ log_activity() {
 }
 
 show_ports() {
-  local s_port
+  local s_port hport
   s_port="$(socks_port)"
   s_port="${s_port:-1234}"
+  hport="$(https_port)"
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
     ufw allow 80/tcp >/dev/null 2>&1
-    ufw allow 443/tcp >/dev/null 2>&1
+    ufw allow "${hport}/tcp" >/dev/null 2>&1
     ufw allow "${s_port}/tcp" >/dev/null 2>&1
-    ok "本机 ufw 已自动放行 80/443/${s_port}（云安全组仍需控制台操作）"
+    ok "本机 ufw 已自动放行 80/${hport}/${s_port}（云安全组仍需控制台操作）"
   elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
     firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
-    firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
+    firewall-cmd --permanent --add-port="${hport}/tcp" >/dev/null 2>&1
     firewall-cmd --permanent --add-port="${s_port}/tcp" >/dev/null 2>&1
     firewall-cmd --reload >/dev/null 2>&1
-    ok "本机 firewalld 已自动放行 80/443/${s_port}（云安全组仍需控制台操作）"
+    ok "本机 firewalld 已自动放行 80/${hport}/${s_port}（云安全组仍需控制台操作）"
   fi
 }
 
@@ -388,13 +404,30 @@ do_caddy() {
       return 1
     fi
 
+    # 证书验证走 80（HTTP-01），80 被其他程序占用则签发必败，提前说清楚
+    if port_busy 80 && ! port_is_caddy 80; then
+      err "80 端口被占用，申请证书需要用它验证域名，请先释放"
+      err "或改用现有 Web 服务器反代面板：reverse_proxy 127.0.0.1:${port}"
+      return 1
+    fi
+    # 443 被其他程序占用时 HTTPS 端口顺延（8443 起，与面板端口同款让位逻辑）
+    local site="$domain" hport=443
+    if port_busy 443 && ! port_is_caddy 443; then
+      hport=8443
+      while port_busy "$hport"; do
+        hport=$((hport + 1))
+      done
+      site="https://${domain}:${hport}"
+      warn "443 已被占用，Caddy HTTPS 改用端口 ${hport}（面板：https://${domain}:${hport}/）"
+    fi
+
     touch "$CADDYFILE"
     local before
     before="$(wc -l <"$CADDYFILE")"
     cat >>"$CADDYFILE" <<EOF
 
 ${CADDY_MARK}
-${domain} {
+${site} {
 	reverse_proxy 127.0.0.1:${port}
 }
 # --- end 3proxy dashboard ---
@@ -405,7 +438,7 @@ EOF
       caddy validate --config "$CADDYFILE" || true
       return 1
     fi
-    ok "已追加站点 ${domain} -> 127.0.0.1:${port}（只追加，未改动其他项目）"
+    ok "已追加站点 ${site} -> 127.0.0.1:${port}（只追加，未改动其他项目）"
   fi
 
   systemctl enable caddy >/dev/null 2>&1 || true
@@ -518,7 +551,7 @@ do_status() {
     echo "SOCKS5：未创建初始用户（在面板创建用户后即可使用）"
   fi
   echo
-  echo "云控制台防火墙请放行：TCP 80、TCP 443、TCP ${s_port}"
+  echo "云控制台防火墙请放行：TCP 80、TCP $(https_port)、TCP ${s_port}"
   echo "============================================================"
 }
 

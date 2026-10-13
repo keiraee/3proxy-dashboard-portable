@@ -198,7 +198,7 @@ sha256sum -c SHA256SUMS        # 在仓库根目录执行，全部 OK 即一致
 | 管理面板 (Flask+gunicorn) | `/opt/3proxy-dashboard/app.py` | `127.0.0.1:18080`（占用自动顺延） |
 | 3proxy 配置 | `/etc/3proxy/3proxy.cfg` | — |
 | 面板环境变量（含账号） | `/etc/3proxy-dashboard.env` | — |
-| 反代（可选） | Caddy | `80/443` |
+| 反代（可选） | Caddy | `80/443`（443 被占用时 HTTPS 端口自动顺延 `8443+`） |
 
 面板默认只绑 `127.0.0.1`，外网访问必须走反代，不要直接暴露端口。
 
